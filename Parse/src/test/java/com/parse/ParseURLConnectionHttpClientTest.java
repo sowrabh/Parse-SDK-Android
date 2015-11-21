@@ -8,6 +8,9 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
@@ -23,7 +26,6 @@ import java.util.Map;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 // For android.net.SSLCertificateSocketFactory
@@ -39,35 +41,35 @@ public class ParseURLConnectionHttpClientTest {
 
     // Get
     ParseHttpRequest parseRequest = builder
-        .setMethod(ParseRequest.Method.GET)
+        .setMethod(ParseHttpRequest.Method.GET)
         .setBody(null)
         .build();
     HttpURLConnection connection = parseClient.getRequest(parseRequest);
-    assertEquals(ParseRequest.Method.GET.toString(), connection.getRequestMethod());
+    assertEquals(ParseHttpRequest.Method.GET.toString(), connection.getRequestMethod());
 
     // Post
     parseRequest = builder
-        .setMethod(ParseRequest.Method.POST)
+        .setMethod(ParseHttpRequest.Method.POST)
         .setBody(new ParseByteArrayHttpBody("test", "application/json"))
         .build();
     connection = parseClient.getRequest(parseRequest);
-    assertEquals(ParseRequest.Method.POST.toString(), connection.getRequestMethod());
+    assertEquals(ParseHttpRequest.Method.POST.toString(), connection.getRequestMethod());
 
     // Delete
     parseRequest = builder
-        .setMethod(ParseRequest.Method.DELETE)
+        .setMethod(ParseHttpRequest.Method.DELETE)
         .setBody(null)
         .build();
     connection = parseClient.getRequest(parseRequest);
-    assertEquals(ParseRequest.Method.DELETE.toString(), connection.getRequestMethod());
+    assertEquals(ParseHttpRequest.Method.DELETE.toString(), connection.getRequestMethod());
 
     // Put
     parseRequest = builder
-        .setMethod(ParseRequest.Method.PUT)
+        .setMethod(ParseHttpRequest.Method.PUT)
         .setBody(new ParseByteArrayHttpBody("test", "application/json"))
         .build();
     connection = parseClient.getRequest(parseRequest);
-    assertEquals(ParseRequest.Method.PUT.toString(), connection.getRequestMethod());
+    assertEquals(ParseHttpRequest.Method.PUT.toString(), connection.getRequestMethod());
   }
 
   @Test
@@ -82,7 +84,7 @@ public class ParseURLConnectionHttpClientTest {
     String contentType = "application/json";
     ParseHttpRequest parseRequest = new ParseHttpRequest.Builder()
         .setUrl(url)
-        .setMethod(ParseRequest.Method.POST)
+        .setMethod(ParseHttpRequest.Method.POST)
         .setBody(new ParseByteArrayHttpBody(content, contentType))
         .setHeaders(headers)
         .build();
@@ -91,7 +93,7 @@ public class ParseURLConnectionHttpClientTest {
     HttpURLConnection connection = parseClient.getRequest(parseRequest);
 
     // Verify method
-    assertEquals(ParseRequest.Method.POST.toString(), connection.getRequestMethod());
+    assertEquals(ParseHttpRequest.Method.POST.toString(), connection.getRequestMethod());
     // Verify URL
     assertEquals(url, connection.getURL().toString());
     // Verify Headers
@@ -110,7 +112,7 @@ public class ParseURLConnectionHttpClientTest {
     String content = "test";
     ParseHttpRequest parseRequest = new ParseHttpRequest.Builder()
         .setUrl(url)
-        .setMethod(ParseRequest.Method.POST)
+        .setMethod(ParseHttpRequest.Method.POST)
         .setBody(new ParseByteArrayHttpBody(content, null))
         .build();
 
@@ -140,7 +142,7 @@ public class ParseURLConnectionHttpClientTest {
 
     // Verify status code
     assertEquals(statusCode, parseResponse.getStatusCode());
-    // Verify reason phase
+    // Verify reason phrase
     assertEquals(reasonPhrase, parseResponse.getReasonPhrase());
     // Verify content length
     assertEquals(contentLength, parseResponse.getTotalSize());
@@ -164,7 +166,7 @@ public class ParseURLConnectionHttpClientTest {
 
     // Verify status code
     assertEquals(statusCode, parseResponse.getStatusCode());
-    // Verify reason phase
+    // Verify reason phrase
     assertEquals(reasonPhrase, parseResponse.getReasonPhrase());
     // Verify content length
     assertEquals(contentLength, parseResponse.getTotalSize());

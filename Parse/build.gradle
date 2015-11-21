@@ -4,7 +4,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'com.github.kt3k.coveralls'
 
 group = 'com.parse'
-version = VERSION_NAME
+version = '1.11.1-SNAPSHOT'
 
 buildscript {
     repositories {
@@ -24,7 +24,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName VERSION_NAME
+        versionName project.version
     }
 
     lintOptions {
@@ -39,9 +39,10 @@ android {
 }
 
 dependencies {
-    compile 'com.parse.bolts:bolts-android:1.2.1'
+    compile 'com.parse.bolts:bolts-tasks:1.3.0'
 
     provided 'com.squareup.okhttp:okhttp:2.4.0'
+    provided 'com.facebook.stetho:stetho:1.1.1'
 
     testCompile 'org.robolectric:robolectric:3.0'
     testCompile 'org.skyscreamer:jsonassert:1.2.3'
@@ -128,7 +129,7 @@ uploadArchives {
             scm {
                 connection 'scm:git@github.com:ParsePlatform/Parse-SDK-Android.git'
                 developerConnection 'scm:git@github.com:ParsePlatform/Parse-SDK-Android.git'
-                url 'https://github.com/ParsePlatform/Parse-SDK-Androidd'
+                url 'https://github.com/ParsePlatform/Parse-SDK-Android'
             }
 
             licenses {
@@ -173,7 +174,7 @@ jacoco {
     toolVersion "0.7.1.201405082137"
 }
 
-task jacocoTestReport(type:JacocoReport, dependsOn: "testDebug") {
+task jacocoTestReport(type:JacocoReport, dependsOn: "testDebugUnitTest") {
     group = "Reporting"
     description = "Generate Jacoco coverage reports"
 
@@ -191,7 +192,7 @@ task jacocoTestReport(type:JacocoReport, dependsOn: "testDebug") {
             "${buildDir}/generated/source/buildConfig/debug",
             "${buildDir}/generated/source/r/debug"
     ])
-    executionData = files("${buildDir}/jacoco/testDebug.exec")
+    executionData = files("${buildDir}/jacoco/testDebugUnitTest.exec")
 
     reports {
         xml.enabled = true

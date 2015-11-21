@@ -15,10 +15,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Matchers;
 import org.robolectric.RobolectricGradleTestRunner;
 import org.robolectric.annotation.Config;
 
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -34,7 +36,6 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyMap;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -86,7 +87,7 @@ public class ParseUserTest {
     }
 
     try {
-      user.removeAll("sessionToken", Arrays.asList());
+      user.removeAll("sessionToken", Collections.emptyList());
     } catch (IllegalArgumentException e) {
       assertTrue(e.getMessage().contains("Cannot modify"));
     }
@@ -165,12 +166,12 @@ public class ParseUserTest {
     ParseUser partialMockUser = spy(user);
     doReturn(Task.<Void>forResult(null))
         .when(partialMockUser)
-        .saveAsync(anyString(), any(Task.class));
+        .saveAsync(anyString(), Matchers.<Task<Void>>any());
 
     ParseTaskUtils.wait(partialMockUser.signUpAsync(Task.<Void>forResult(null)));
 
     // Verify user is saved
-    verify(partialMockUser, times(1)).saveAsync(eq("sessionToken"), any(Task.class));
+    verify(partialMockUser, times(1)).saveAsync(eq("sessionToken"), Matchers.<Task<Void>>any());
   }
 
   @Test
@@ -217,10 +218,11 @@ public class ParseUserTest {
     ParseUser currentUser = mock(ParseUser.class);
     when(currentUser.getUsername()).thenReturn("oldUserName");
     when(currentUser.getPassword()).thenReturn("oldPassword");
+    when(currentUser.isLazy()).thenReturn(false);
     when(currentUser.isLinked(ParseAnonymousUtils.AUTH_TYPE)).thenReturn(true);
     when(currentUser.getSessionToken()).thenReturn("oldSessionToken");
     when(currentUser.getAuthData()).thenReturn(new HashMap<String, Map<String, String>>());
-    when(currentUser.saveAsync(anyString(), any(Task.class)))
+    when(currentUser.saveAsync(anyString(), eq(false), Matchers.<Task<Void>>any()))
         .thenReturn(Task.<Void>forResult(null));
     ParseUser.State state = new ParseUser.State.Builder()
         .put("oldKey", "oldValue")
@@ -240,15 +242,14 @@ public class ParseUserTest {
     Task<Void> signUpTask = user.signUpAsync(Task.<Void>forResult(null));
     signUpTask.waitForCompletion();
 
-    // Make sure we checkForChangesToMutableContainers
-    verify(currentUser, times(1)).checkForChangesToMutableContainers();
     // Make sure currentUser copy changes from user
     verify(currentUser, times(1)).copyChangesFrom(user);
     // Make sure we update currentUser username and password
     verify(currentUser, times(1)).setUsername("userName");
     verify(currentUser, times(1)).setPassword("password");
     // Make sure we save currentUser
-    verify(currentUser, times(1)).saveAsync(eq("oldSessionToken"), any(Task.class));
+    verify(currentUser, times(1))
+        .saveAsync(eq("oldSessionToken"), eq(false), Matchers.<Task<Void>>any());
     // Make sure we merge currentUser with user after save
     assertEquals("oldValue", user.get("oldKey"));
     // Make sure set currentUser
@@ -262,14 +263,15 @@ public class ParseUserTest {
     Map<String, String> oldAnonymousAuthData = new HashMap<>();
     oldAnonymousAuthData.put("oldKey", "oldToken");
     currentUser.putAuthData(ParseAnonymousUtils.AUTH_TYPE, oldAnonymousAuthData);
-    ParseUser partialMockCurrentUser = spy(currentUser);
+    ParseUser partialMockCurrentUser = spy(currentUser); // Spy since we need mutex
     when(partialMockCurrentUser.getUsername()).thenReturn("oldUserName");
     when(partialMockCurrentUser.getPassword()).thenReturn("oldPassword");
     when(partialMockCurrentUser.getSessionToken()).thenReturn("oldSessionToken");
+    when(partialMockCurrentUser.isLazy()).thenReturn(false);
     ParseException saveException = new ParseException(ParseException.OTHER_CAUSE, "");
     doReturn(Task.<Void>forError(saveException))
         .when(partialMockCurrentUser)
-        .saveAsync(anyString(), any(Task.class));
+        .saveAsync(anyString(), eq(false), Matchers.<Task<Void>>any());
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync(anyBoolean()))
         .thenReturn(Task.forResult(partialMockCurrentUser));
@@ -285,15 +287,14 @@ public class ParseUserTest {
     Task<Void> signUpTask = user.signUpAsync(Task.<Void>forResult(null));
     signUpTask.waitForCompletion();
 
-    // Make sure we checkForChangesToMutableContainers
-    verify(partialMockCurrentUser, times(1)).checkForChangesToMutableContainers();
     // Make sure we update currentUser username and password
     verify(partialMockCurrentUser, times(1)).setUsername("userName");
     verify(partialMockCurrentUser, times(1)).setPassword("password");
     // Make sure we sync user with currentUser
     verify(partialMockCurrentUser, times(1)).copyChangesFrom(eq(user));
     // Make sure we save currentUser
-    verify(partialMockCurrentUser, times(1)).saveAsync(eq("oldSessionToken"), any(Task.class));
+    verify(partialMockCurrentUser, times(1))
+        .saveAsync(eq("oldSessionToken"), eq(false), Matchers.<Task<Void>>any());
     // Make sure we restore old username and password after save fails
     verify(partialMockCurrentUser, times(1)).setUsername("oldUserName");
     verify(partialMockCurrentUser, times(1)).setPassword("oldPassword");
@@ -383,28 +384,28 @@ public class ParseUserTest {
     // Register a mock currentUserController to make getCurrentUser work
     ParseUser currentUser = new ParseUser();
     currentUser.putAuthData(ParseAnonymousUtils.AUTH_TYPE, new HashMap<String, String>());
-    currentUser.isLazy = true;
+    setLazy(currentUser);
     ParseUser partialMockCurrentUser = spy(currentUser);
     when(partialMockCurrentUser.getSessionToken()).thenReturn("oldSessionToken");
     doReturn(Task.<ParseUser>forResult(null))
         .when(partialMockCurrentUser)
-        .resolveLazinessAsync(any(Task.class));
+        .resolveLazinessAsync(Matchers.<Task<Void>>any());
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync()).thenReturn(Task.forResult(partialMockCurrentUser));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser user = new ParseUser();
     String authType = "facebook";
     Map<String, String> authData = new HashMap<>();
     authData.put("token", "123");
-    ParseUser userAfterLogin = ParseTaskUtils.wait(user.logInWithAsync(authType, authData));
+    ParseUser userAfterLogin = ParseTaskUtils.wait(ParseUser.logInWithInBackground(authType,
+        authData));
 
     // Make sure we stripAnonymity
     assertNull(userAfterLogin.getAuthData().get(ParseAnonymousUtils.AUTH_TYPE));
     // Make sure we update authData
     assertEquals(authData, userAfterLogin.getAuthData().get("facebook"));
     // Make sure we resolveLaziness
-    verify(partialMockCurrentUser, times(1)).resolveLazinessAsync(any(Task.class));
+    verify(partialMockCurrentUser, times(1)).resolveLazinessAsync(Matchers.<Task<Void>>any());
   }
 
   @Test
@@ -414,26 +415,24 @@ public class ParseUserTest {
     Map<String, String> oldAnonymousAuthData = new HashMap<>();
     oldAnonymousAuthData.put("oldKey", "oldToken");
     currentUser.putAuthData(ParseAnonymousUtils.AUTH_TYPE, oldAnonymousAuthData);
-    currentUser.isLazy = true;
     ParseUser partialMockCurrentUser = spy(currentUser);
     when(partialMockCurrentUser.getSessionToken()).thenReturn("oldSessionToken");
     doReturn(Task.<ParseUser>forError(new Exception()))
         .when(partialMockCurrentUser)
-        .resolveLazinessAsync(any(Task.class));
+        .resolveLazinessAsync(Matchers.<Task<Void>>any());
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync()).thenReturn(Task.forResult(partialMockCurrentUser));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser user = new ParseUser();
     String authType = "facebook";
     Map<String, String> authData = new HashMap<>();
     authData.put("token", "123");
 
-    Task<ParseUser> loginTask = user.logInWithAsync(authType, authData);
+    Task<ParseUser> loginTask = ParseUser.logInWithInBackground(authType, authData);
     loginTask.waitForCompletion();
 
     // Make sure we try to resolveLaziness
-    verify(partialMockCurrentUser, times(1)).resolveLazinessAsync(any(Task.class));
+    verify(partialMockCurrentUser, times(1)).resolveLazinessAsync(Matchers.<Task<Void>>any());
     // Make sure we do not save new authData
     assertNull(partialMockCurrentUser.getAuthData().get("facebook"));
     // Make sure we restore anonymity after resolve laziness failure
@@ -446,27 +445,30 @@ public class ParseUserTest {
   @Test
   public void testLoginWithAsyncWithLinkedNotLazyUser() throws Exception {
     // Register a mock currentUserController to make getCurrentUser work
-    ParseUser currentUser = new ParseUser();
-    currentUser.putAuthData(ParseAnonymousUtils.AUTH_TYPE, new HashMap<String, String>());
-    ParseUser partialMockCurrentUser = spy(currentUser);
-    when(partialMockCurrentUser.getSessionToken()).thenReturn("sessionToken");
+    ParseUser.State state = new ParseUser.State.Builder()
+        .objectId("objectId") // Make it not lazy
+        .putAuthData(ParseAnonymousUtils.AUTH_TYPE, new HashMap<String, String>())
+        .build();
+    ParseUser currentUser = ParseUser.from(state);
+    ParseUser partialMockCurrentUser = spy(currentUser); // ParseUser.mutex
     doReturn(Task.<Void>forResult(null))
         .when(partialMockCurrentUser)
-        .linkWithAsync(anyString(), anyMap(), anyString());
+        .linkWithInBackground(anyString(), Matchers.<Map<String, String>>any());
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync()).thenReturn(Task.forResult(partialMockCurrentUser));
+    when(currentUserController.getAsync(anyBoolean()))
+        .thenReturn(Task.forResult(partialMockCurrentUser));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser user = new ParseUser();
     String authType = "facebook";
     Map<String, String> authData = new HashMap<>();
     authData.put("token", "123");
 
-    ParseUser userAfterLogin = ParseTaskUtils.wait(user.logInWithAsync(authType, authData));
+    ParseUser userAfterLogin = ParseTaskUtils.wait(ParseUser.logInWithInBackground(authType,
+        authData));
 
     // Make sure we link authData
-    verify(partialMockCurrentUser, times(1)).linkWithAsync(
-        eq("facebook"), eq(authData), eq("sessionToken"));
+    verify(partialMockCurrentUser, times(1)).linkWithInBackground(authType, authData);
     assertSame(partialMockCurrentUser, userAfterLogin);
   }
 
@@ -478,18 +480,20 @@ public class ParseUserTest {
         .put("newKey", "newValue")
         .sessionToken("newSessionToken")
         .build();
-    when(userController.logInAsync(anyString(), anyMap())).thenReturn(Task.forResult(newUserState));
+    when(userController.logInAsync(anyString(), Matchers.<Map<String, String>>any()))
+        .thenReturn(Task.forResult(newUserState));
     ParseCorePlugins.getInstance().registerUserController(userController);
     // Register a mock currentUserController to make getCurrentUser work
     ParseUser currentUser = new ParseUser();
     currentUser.putAuthData(ParseAnonymousUtils.AUTH_TYPE, new HashMap<String, String>());
+    currentUser.setObjectId("objectId"); // Make it not lazy.
     ParseUser partialMockCurrentUser = spy(currentUser);
     when(partialMockCurrentUser.getSessionToken()).thenReturn("sessionToken");
     ParseException linkException =
         new ParseException(ParseException.ACCOUNT_ALREADY_LINKED, "Account already linked");
     doReturn(Task.<Void>forError(linkException))
         .when(partialMockCurrentUser)
-        .linkWithAsync(anyString(), anyMap(), anyString());
+        .linkWithInBackground(anyString(), Matchers.<Map<String, String>>any());
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync()).thenReturn(Task.forResult(partialMockCurrentUser));
     when(currentUserController.setAsync(any(ParseUser.class)))
@@ -497,15 +501,14 @@ public class ParseUserTest {
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
 
-    ParseUser user = new ParseUser();
     String authType = "facebook";
     Map<String, String> authData = new HashMap<>();
     authData.put("token", "123");
-    ParseUser userAfterLogin = ParseTaskUtils.wait(user.logInWithAsync(authType, authData));
+    ParseUser userAfterLogin = ParseTaskUtils.wait(ParseUser.logInWithInBackground(authType,
+        authData));
 
     // Make sure we link authData
-    verify(partialMockCurrentUser, times(1)).linkWithAsync(
-        eq("facebook"), eq(authData), eq("sessionToken"));
+    verify(partialMockCurrentUser, times(1)).linkWithInBackground(authType, authData);
     // Make sure we login authData
     verify(userController, times(1)).logInAsync("facebook", authData);
     // Make sure we save the new created user as currentUser
@@ -523,22 +526,22 @@ public class ParseUserTest {
         .put("newKey", "newValue")
         .sessionToken("newSessionToken")
         .build();
-    when(userController.logInAsync(anyString(), anyMap())).thenReturn(Task.forResult(newUserState));
+    when(userController.logInAsync(anyString(), Matchers.<Map<String, String>>any()))
+        .thenReturn(Task.forResult(newUserState));
     ParseCorePlugins.getInstance().registerUserController(userController);
     // Register a mock currentUserController to make getCurrentUser work
-    ParseUser currentUser = new ParseUser();
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync()).thenReturn(Task.<ParseUser>forResult(null));
     when(currentUserController.setAsync(any(ParseUser.class)))
         .thenReturn(Task.<Void>forResult(null));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser user = new ParseUser();
     String authType = "facebook";
     Map<String, String> authData = new HashMap<>();
     authData.put("token", "123");
 
-    ParseUser userAfterLogin = ParseTaskUtils.wait(user.logInWithAsync(authType, authData));
+    ParseUser userAfterLogin = ParseTaskUtils.wait(ParseUser.logInWithInBackground(authType,
+        authData));
 
     // Make sure we login authData
     verify(userController, times(1)).logInAsync("facebook", authData);
@@ -551,21 +554,21 @@ public class ParseUserTest {
 
   //endregion
 
-  //region testLinkWithAsync
+  //region testlinkWithInBackground
 
   @Test
-  public void testLinkWithAsyncWithSaveAsyncSuccess() throws Exception {
+  public void testlinkWithInBackgroundWithSaveAsyncSuccess() throws Exception {
     // Register a mock currentUserController to make setCurrentUser work
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getCurrentSessionTokenAsync())
         .thenReturn(Task.<String>forResult(null));
     when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.<ParseUser>forResult(null));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
-    // Register a mock authenticationProvider
-    ParseAuthenticationProvider provider = mock(ParseAuthenticationProvider.class);
-    when(provider.getAuthType()).thenReturn("facebook");
-    when(provider.restoreAuthentication(anyMap())).thenReturn(true);
-    ParseUser.registerAuthenticationProvider(provider);
+    // Register mock callbacks
+    AuthenticationCallback callbacks = mock(AuthenticationCallback.class);
+    when(callbacks.onRestore(Matchers.<Map<String, String>>any()))
+        .thenReturn(true);
+    ParseUser.registerAuthenticationCallback("facebook", callbacks);
 
     ParseUser user = new ParseUser();
     // To make synchronizeAuthData work
@@ -576,25 +579,28 @@ public class ParseUserTest {
     ParseUser partialMockUser = spy(user);
     doReturn(Task.<Void>forResult(null))
         .when(partialMockUser)
-        .saveAsync(anyString(), any(Task.class));
-    String authType = "facebook";
+        .saveAsync(anyString(), eq(false), Matchers.<Task<Void>>any());
+    doReturn("sessionTokenAgain")
+        .when(partialMockUser)
+        .getSessionToken();
     Map<String, String> authData = new HashMap<>();
     authData.put("token", "test");
 
-    ParseTaskUtils.wait(partialMockUser.linkWithAsync(authType, authData, "sessionTokenAgain"));
+    ParseTaskUtils.wait(partialMockUser.linkWithInBackground("facebook", authData));
 
     // Make sure we stripAnonymity
     assertNull(partialMockUser.getAuthData().get(ParseAnonymousUtils.AUTH_TYPE));
     // Make sure new authData is added
     assertSame(authData, partialMockUser.getAuthData().get("facebook"));
     // Make sure we save the user
-    verify(partialMockUser, times(1)).saveAsync(eq("sessionTokenAgain"), any(Task.class));
+    verify(partialMockUser, times(1))
+        .saveAsync(eq("sessionTokenAgain"), eq(false), Matchers.<Task<Void>>any());
     // Make sure synchronizeAuthData() is called
-    verify(provider, times(1)).restoreAuthentication(authData);
+    verify(callbacks, times(1)).onRestore(authData);
   }
 
   @Test
-  public void testLinkWithAsyncWithSaveAsyncFailure() throws Exception {
+  public void testlinkWithInBackgroundWithSaveAsyncFailure() throws Exception {
     // Register a mock currentUserController to make setCurrentUser work
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getCurrentSessionTokenAsync())
@@ -611,19 +617,23 @@ public class ParseUserTest {
     Exception saveException = new Exception();
     doReturn(Task.<Void>forError(saveException))
         .when(partialMockUser)
-        .saveAsync(anyString(), any(Task.class));
-    String facebookAuthType = "facebook";
-    Map<String, String> facebookAuthData = new HashMap<>();
-    facebookAuthData.put("facebookToken", "facebookTest");
+        .saveAsync(anyString(), eq(false), Matchers.<Task<Void>>any());
+    doReturn("sessionTokenAgain")
+        .when(partialMockUser)
+        .getSessionToken();
+    String authType = "facebook";
+    Map<String, String> authData = new HashMap<>();
+    authData.put("facebookToken", "facebookTest");
 
     Task<Void> linkTask =
-        partialMockUser.linkWithAsync(facebookAuthType, facebookAuthData, "sessionTokenAgain");
+        partialMockUser.linkWithInBackground(authType, authData);
     linkTask.waitForCompletion();
 
     // Make sure new authData is added
-    assertSame(facebookAuthData, partialMockUser.getAuthData().get("facebook"));
+    assertSame(authData, partialMockUser.getAuthData().get(authType));
     // Make sure we save the user
-    verify(partialMockUser, times(1)).saveAsync(eq("sessionTokenAgain"), any(Task.class));
+    verify(partialMockUser, times(1))
+        .saveAsync(eq("sessionTokenAgain"), eq(false), Matchers.<Task<Void>>any());
     // Make sure old authData is restored
     assertSame(anonymousAuthData, partialMockUser.getAuthData().get(ParseAnonymousUtils.AUTH_TYPE));
     // Verify exception
@@ -635,36 +645,9 @@ public class ParseUserTest {
   //region testResolveLazinessAsync
 
   @Test
-  public void testResolveLazinessAsyncWithNotLazyUser() throws Exception {
-    ParseUser user = new ParseUser();
-
-    ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
-  }
-
-  @Test
-  public void testResolveLazinessAsyncWithNoAuthData() throws Exception {
-    ParseUser user = new ParseUser();
-    user.isLazy = true;
-    ParseUser partialMockUser = spy(user);
-    doReturn(Task.forResult(null))
-        .when(partialMockUser)
-        .signUpAsync(any(Task.class));
-
-    ParseUser userAfterResolveLaziness =
-        ParseTaskUtils.wait(partialMockUser.resolveLazinessAsync(Task.<Void>forResult(null)));
-
-    // Make sure we signUp the lazy user
-    verify(partialMockUser, times(1)).signUpAsync(any(Task.class));
-    // Make sure the user is not lazy
-    assertFalse(userAfterResolveLaziness.isLazy());
-    // Make sure we do not create new user
-    assertSame(partialMockUser, userAfterResolveLaziness);
-  }
-
-  @Test
   public void testResolveLazinessAsyncWithAuthDataAndNotNewUser() throws Exception {
     ParseUser user = new ParseUser();
-    user.isLazy = true;
+    setLazy(user);
     user.putAuthData("facebook", new HashMap<String, String>());
     // Register a mock userController to make logIn work
     ParseUserController userController = mock(ParseUserController.class);
@@ -682,14 +665,16 @@ public class ParseUserTest {
         .thenReturn(Task.<Void>forResult(null));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser userAfterResolveLaziness =
-        ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
+    ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
+    ArgumentCaptor<ParseUser> userAfterResolveLazinessCaptor =
+        ArgumentCaptor.forClass(ParseUser.class);
 
     // Make sure we logIn the lazy user
     verify(userController, times(1)).logInAsync(
         any(ParseUser.State.class), any(ParseOperationSet.class));
     // Make sure we save currentUser
-    verify(currentUserController, times(1)).setAsync(any(ParseUser.class));
+    verify(currentUserController, times(1)).setAsync(userAfterResolveLazinessCaptor.capture());
+    ParseUser userAfterResolveLaziness = userAfterResolveLazinessCaptor.getValue();
     // Make sure user's data is correct
     assertEquals("newSessionToken", userAfterResolveLaziness.getSessionToken());
     assertEquals("newValue", userAfterResolveLaziness.get("newKey"));
@@ -702,11 +687,12 @@ public class ParseUserTest {
   @Test
   public void testResolveLazinessAsyncWithAuthDataAndNewUser() throws Exception {
     ParseUser user = new ParseUser();
-    user.isLazy = true;
+    setLazy(user);
     user.putAuthData("facebook", new HashMap<String, String>());
     // Register a mock userController to make logIn work
     ParseUserController userController = mock(ParseUserController.class);
     ParseUser.State newUserState = new ParseUser.State.Builder()
+        .objectId("objectId")
         .put("newKey", "newValue")
         .sessionToken("newSessionToken")
         .isNew(true)
@@ -718,8 +704,7 @@ public class ParseUserTest {
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser userAfterResolveLaziness =
-        ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
+    ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
 
     // Make sure we logIn the lazy user
     verify(userController, times(1)).logInAsync(
@@ -727,18 +712,16 @@ public class ParseUserTest {
     // Make sure we do not save currentUser
     verify(currentUserController, never()).setAsync(any(ParseUser.class));
     // Make sure userAfterResolveLaziness's data is correct
-    assertEquals("newSessionToken", userAfterResolveLaziness.getSessionToken());
-    assertEquals("newValue", userAfterResolveLaziness.get("newKey"));
+    assertEquals("newSessionToken", user.getSessionToken());
+    assertEquals("newValue", user.get("newKey"));
     // Make sure userAfterResolveLaziness is not lazy
-    assertFalse(userAfterResolveLaziness.isLazy());
-    // Make sure we do not create new user
-    assertSame(user, userAfterResolveLaziness);
+    assertFalse(user.isLazy());
   }
 
   @Test
   public void testResolveLazinessAsyncWithAuthDataAndNotNewUserAndLDSEnabled() throws Exception {
     ParseUser user = new ParseUser();
-    user.isLazy = true;
+    setLazy(user);
     user.putAuthData("facebook", new HashMap<String, String>());
     // To verify handleSaveResultAsync is not called
     user.setPassword("password");
@@ -760,8 +743,9 @@ public class ParseUserTest {
     // Enable LDS
     Parse.enableLocalDatastore(null);
 
-    ParseUser userAfterResolveLaziness =
-        ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
+    ParseTaskUtils.wait(user.resolveLazinessAsync(Task.<Void>forResult(null)));
+    ArgumentCaptor<ParseUser> userAfterResolveLazinessCaptor =
+        ArgumentCaptor.forClass(ParseUser.class);
 
     // Make sure we logIn the lazy user
     verify(userController, times(1)).logInAsync(
@@ -770,7 +754,8 @@ public class ParseUserTest {
     // field should be cleaned
     assertEquals("password", user.getPassword());
     // Make sure we do not save currentUser
-    verify(currentUserController, times(1)).setAsync(any(ParseUser.class));
+    verify(currentUserController, times(1)).setAsync(userAfterResolveLazinessCaptor.capture());
+    ParseUser userAfterResolveLaziness = userAfterResolveLazinessCaptor.getValue();
     // Make sure userAfterResolveLaziness's data is correct
     assertEquals("newSessionToken", userAfterResolveLaziness.getSessionToken());
     assertEquals("newValue", userAfterResolveLaziness.get("newKey"));
@@ -794,23 +779,6 @@ public class ParseUserTest {
     user.validateSave();
   }
 
-  @Test
-  public void testValidateSaveWithIsAuthenticated() throws Exception {
-    // Register a mock currentUserController to make getCurrentUser work
-    ParseUser currentUser = new ParseUser();
-    ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
-    when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.<ParseUser>forResult(null));
-    ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
-
-    ParseUser user = new ParseUser();
-    user.setObjectId("test");
-    // A lazy user will be an authenticated user. More complicated cases will be covered in
-    // isAuthenticated() unit test.
-    user.isLazy = true;
-
-    user.validateSave();
-  }
-
   // TODO(mengyan): Add testValidateSaveWithIsAuthenticatedWithNotDirty
 
   // TODO(mengyan): Add testValidateSaveWithIsAuthenticatedWithIsCurrentUser
@@ -826,8 +794,6 @@ public class ParseUserTest {
 
     ParseUser user = new ParseUser();
     user.setObjectId("test");
-    // Make isAuthenticated return false
-    user.isLazy = false;
     // Make isDirty return true
     user.put("key", "value");
     // Make isCurrent return false
@@ -847,8 +813,6 @@ public class ParseUserTest {
 
     ParseUser user = new ParseUser();
     user.setObjectId("test");
-    // Make isAuthenticated return false
-    user.isLazy = false;
     // Make isDirty return true
     user.put("key", "value");
     // Make isCurrent return false
@@ -874,16 +838,15 @@ public class ParseUserTest {
 
     // Set facebook authData to null to verify cleanAuthData()
     ParseUser.State userState = new ParseUser.State.Builder()
-        .objectId("test")
         .putAuthData("facebook", null)
         .build();
     ParseUser user = ParseObject.from(userState);
-    user.isLazy = true;
+    setLazy(user);
     user.setIsCurrentUser(true);
     ParseUser partialMockUser = spy(user);
     doReturn(Task.<Void>forResult(null))
         .when(partialMockUser)
-        .resolveLazinessAsync(any(Task.class));
+        .resolveLazinessAsync(Matchers.<Task<Void>>any());
 
     ParseTaskUtils.wait(partialMockUser.saveAsync("sessionToken", Task.<Void>forResult(null)));
 
@@ -903,16 +866,15 @@ public class ParseUserTest {
 
     // Set facebook authData to null to verify cleanAuthData()
     ParseUser.State userState = new ParseUser.State.Builder()
-        .objectId("test")
         .putAuthData("facebook", null)
         .build();
     ParseUser user = ParseObject.from(userState);
-    user.isLazy = true;
+    setLazy(user);
     user.setIsCurrentUser(false);
     ParseUser partialMockUser = spy(user);
     doReturn(Task.<Void>forResult(null))
         .when(partialMockUser)
-        .resolveLazinessAsync(any(Task.class));
+        .resolveLazinessAsync(Matchers.<Task<Void>>any());
 
     ParseTaskUtils.wait(partialMockUser.saveAsync("sessionToken", Task.<Void>forResult(null)));
 
@@ -930,48 +892,14 @@ public class ParseUserTest {
   //region testLogOutAsync
 
   @Test
-  public void testLogoutInternal() throws Exception {
-    // Register a mock currentUserController to make setCurrentUser work
-    ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
-    when(currentUserController.setAsync(any(ParseUser.class)))
-        .thenReturn(Task.<Void>forResult(null));
-    when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.<ParseUser>forResult(null));
-    ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
-    // Register a mock authenticationProvider
-    ParseAuthenticationProvider provider = mock(ParseAuthenticationProvider.class);
-    when(provider.getAuthType()).thenReturn("facebook");
-    when(provider.restoreAuthentication(anyMap())).thenReturn(true);
-    ParseUser.registerAuthenticationProvider(provider);
-
-    // Set user initial state
-    String facebookAuthType = "facebook";
-    Map<String, String> facebookAuthData = new HashMap<>();
-    facebookAuthData.put("facebookToken", "facebookTest");
-    ParseUser.State userState = new ParseUser.State.Builder()
-        .objectId("test")
-        .putAuthData(facebookAuthType, facebookAuthData)
-        .sessionToken("oldSessionToken")
-        .build();
-    ParseUser user = ParseObject.from(userState);
-
-    String oldSessionToken = user.logOutInternal();
-
-    // Make sure user state is correct
-    assertFalse(user.isCurrentUser());
-    assertFalse(user.isNew());
-    assertNull(user.getSessionToken());
-    // Make sure provider is deauthenticate
-    verify(provider, times(1)).deauthenticate();
-    // Make sure return sessionToken is correct
-    assertSame("oldSessionToken", oldSessionToken);
-  }
-
-  @Test
   public void testLogOutAsync() throws Exception {
     // Register a mock sessionController to verify revokeAsync()
     NetworkSessionController sessionController = mock(NetworkSessionController.class);
     when(sessionController.revokeAsync(anyString())).thenReturn(Task.<Void>forResult(null));
     ParseCorePlugins.getInstance().registerSessionController(sessionController);
+    ParseAuthenticationManager manager = mock(ParseAuthenticationManager.class);
+    when(manager.deauthenticateAsync(anyString())).thenReturn(Task.<Void>forResult(null));
+    ParseCorePlugins.getInstance().registerAuthenticationManager(manager);
 
     // Set user initial state
     String facebookAuthType = "facebook";
@@ -986,6 +914,7 @@ public class ParseUserTest {
 
     ParseTaskUtils.wait(user.logOutAsync());
 
+    verify(manager).deauthenticateAsync("facebook");
     // Verify we revoke session
     verify(sessionController, times(1)).revokeAsync("r:oldSessionToken");
   }
@@ -1006,8 +935,7 @@ public class ParseUserTest {
     when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.forResult(mockUser));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser user = new ParseUser();
-    ParseTaskUtils.wait(user.enableRevocableSessionInBackground());
+    ParseTaskUtils.wait(ParseUser.enableRevocableSessionInBackground());
 
     verify(currentUserController, times(1)).getAsync(false);
     verify(mockUser, times(1)).upgradeToRevocableSessionAsync();
@@ -1024,8 +952,7 @@ public class ParseUserTest {
     when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.<ParseUser>forResult(null));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
-    ParseUser user = new ParseUser();
-    ParseTaskUtils.wait(user.enableRevocableSessionInBackground());
+    ParseTaskUtils.wait(ParseUser.enableRevocableSessionInBackground());
 
     verify(currentUserController, times(1)).getAsync(false);
   }
@@ -1059,6 +986,41 @@ public class ParseUserTest {
     verify(currentUserController, times(1)).setAsync(user);
   }
 
+  @Test
+  public void testDontOverwriteSessionTokenForCurrentUser() throws Exception {
+    ParseUser.State sessionTokenState = new ParseUser.State.Builder()
+            .sessionToken("sessionToken")
+            .put("key0", "value0")
+            .put("key1", "value1")
+            .isComplete(true)
+            .build();
+    ParseUser.State newState = new ParseUser.State.Builder()
+            .put("key0", "newValue0")
+            .put("key2", "value2")
+            .isComplete(true)
+            .build();
+    ParseUser.State emptyState = new ParseUser.State.Builder().isComplete(true).build();
+
+    ParseUser user = ParseObject.from(sessionTokenState);
+    user.setIsCurrentUser(true);
+    assertEquals(user.getSessionToken(), "sessionToken");
+    assertEquals(user.getString("key0"), "value0");
+    assertEquals(user.getString("key1"), "value1");
+
+    user.setState(newState);
+    assertEquals(user.getSessionToken(), "sessionToken");
+    assertEquals(user.getString("key0"), "newValue0");
+    assertNull(user.getString("key1"));
+    assertEquals(user.getString("key2"), "value2");
+
+    user.setIsCurrentUser(false);
+    user.setState(emptyState);
+    assertNull(user.getSessionToken());
+    assertNull(user.getString("key0"));
+    assertNull(user.getString("key1"));
+    assertNull(user.getString("key2"));
+  }
+
   //endregion
 
   //region testUnlinkFromAsync
@@ -1073,48 +1035,25 @@ public class ParseUserTest {
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
 
     // Set user initial state
-    String facebookAuthType = "facebook";
-    Map<String, String> facebookAuthData = new HashMap<>();
-    facebookAuthData.put("facebookToken", "facebookTest");
+    String authType = "facebook";
+    Map<String, String> authData = new HashMap<>();
+    authData.put("facebookToken", "facebookTest");
     ParseUser.State userState = new ParseUser.State.Builder()
         .objectId("test")
-        .putAuthData(facebookAuthType, facebookAuthData)
+        .putAuthData(authType, authData)
         .build();
     ParseUser user = ParseObject.from(userState);
     ParseUser partialMockUser = spy(user);
     doReturn(Task.<Void>forResult(null))
         .when(partialMockUser)
-        .saveAsync(anyString(), any(Task.class));
+        .saveAsync(anyString(), Matchers.<Task<Void>>any());
 
-    ParseTaskUtils.wait(partialMockUser.unlinkFromAsync("facebook"));
+    ParseTaskUtils.wait(partialMockUser.unlinkFromInBackground(authType));
 
     // Verify we delete authData
     assertNull(user.getAuthData().get("facebook"));
     // Verify we save the user
-    verify(partialMockUser, times(1)).saveAsync(eq("sessionToken"), any(Task.class));
-  }
-
-  @Test
-  public void testUnlinkFromAsyncWithNoAuthType() throws Exception {
-    // Register a mock currentUserController to make getAsync work
-    ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
-    when(currentUserController.getAsync()).thenReturn(Task.<ParseUser>forResult(null));
-    ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
-
-    // Set user initial state
-    String facebookAuthType = "facebook";
-    Map<String, String> facebookAuthData = new HashMap<>();
-    facebookAuthData.put("facebookToken", "facebookTest");
-    ParseUser.State userState = new ParseUser.State.Builder()
-        .objectId("test")
-        .putAuthData(facebookAuthType, facebookAuthData)
-        .build();
-    ParseUser user = ParseObject.from(userState);
-
-    ParseTaskUtils.wait(user.unlinkFromAsync(null));
-
-    // Verify we do not delete authData
-    assertEquals(facebookAuthData, user.getAuthData().get("facebook"));
+    verify(partialMockUser, times(1)).saveAsync(eq("sessionToken"), Matchers.<Task<Void>>any());
   }
 
   //endregion
@@ -1310,8 +1249,6 @@ public class ParseUserTest {
 
     ParseUser user = new ParseUser();
     user.setObjectId("test");
-    // Make isAuthenticated return false
-    user.isLazy = false;
     // Make isDirty return true
     user.put("key", "value");
 
@@ -1347,25 +1284,26 @@ public class ParseUserTest {
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.forResult(currentUser));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
-    // Register a mock authenticationProvider
-    ParseAuthenticationProvider provider = mock(ParseAuthenticationProvider.class);
-    when(provider.getAuthType()).thenReturn("facebook");
-    when(provider.restoreAuthentication(anyMap())).thenReturn(true);
-    ParseUser.registerAuthenticationProvider(provider);
+    // Register mock callbacks
+    AuthenticationCallback callbacks = mock(AuthenticationCallback.class);
+    when(callbacks.onRestore(Matchers.<Map<String, String>>any()))
+        .thenReturn(true);
+    ParseUser.registerAuthenticationCallback("facebook", callbacks);
 
     // Set user initial state
-    String facebookAuthType = "facebook";
-    Map<String, String> facebookAuthData = new HashMap<>();
-    facebookAuthData.put("facebookToken", "facebookTest");
+    String authType = "facebook";
+    Map<String, String> authData = new HashMap<>();
+    authData.put("facebookToken", "facebookTest");
     ParseUser.State userState = new ParseUser.State.Builder()
-        .putAuthData(facebookAuthType, facebookAuthData)
+        .putAuthData(authType, authData)
         .build();
     ParseUser user = ParseObject.from(userState);
+    user.setIsCurrentUser(true);
 
-    user.synchronizeAuthData(provider);
+    ParseTaskUtils.wait(user.synchronizeAuthDataAsync(authType));
 
     // Make sure we restore authentication
-    verify(provider, times(1)).restoreAuthentication(facebookAuthData);
+    verify(callbacks, times(1)).onRestore(authData);
   }
 
   @Test
@@ -1375,11 +1313,11 @@ public class ParseUserTest {
     ParseCurrentUserController currentUserController = mock(ParseCurrentUserController.class);
     when(currentUserController.getAsync(anyBoolean())).thenReturn(Task.forResult(currentUser));
     ParseCorePlugins.getInstance().registerCurrentUserController(currentUserController);
-    // Register a mock authenticationProvider
-    ParseAuthenticationProvider provider = mock(ParseAuthenticationProvider.class);
-    when(provider.getAuthType()).thenReturn("facebook");
-    when(provider.restoreAuthentication(anyMap())).thenReturn(true);
-    ParseUser.registerAuthenticationProvider(provider);
+    // Register mock callbacks
+    AuthenticationCallback callbacks = mock(AuthenticationCallback.class);
+    when(callbacks.onRestore(Matchers.<Map<String, String>>any()))
+        .thenReturn(true);
+    ParseUser.registerAuthenticationCallback("facebook", callbacks);
 
     // Set user initial state
     String facebookAuthType = "facebook";
@@ -1391,10 +1329,10 @@ public class ParseUserTest {
     ParseUser user = ParseObject.from(userState);
     user.setIsCurrentUser(true);
 
-    user.synchronizeAllAuthData();
+    ParseTaskUtils.wait(user.synchronizeAllAuthDataAsync());
 
     // Make sure we restore authentication
-    verify(provider, times(1)).restoreAuthentication(facebookAuthData);
+    verify(callbacks, times(1)).onRestore(facebookAuthData);
   }
 
   //endregion
@@ -1403,13 +1341,13 @@ public class ParseUserTest {
 
   @Test
   public void testAutomaticUser() throws Exception {
-    ParseUser user = new ParseUser();
+    new ParseUser();
 
-    user.disableAutomaticUser();
-    assertFalse(user.isAutomaticUserEnabled());
+    ParseUser.disableAutomaticUser();
+    assertFalse(ParseUser.isAutomaticUserEnabled());
 
-    user.enableAutomaticUser();
-    assertTrue(user.isAutomaticUserEnabled());
+    ParseUser.enableAutomaticUser();
+    assertTrue(ParseUser.isAutomaticUserEnabled());
   }
 
   //endregion
@@ -1462,4 +1400,10 @@ public class ParseUserTest {
   }
 
   //endregion
+
+  private static void setLazy(ParseUser user) {
+    Map<String, String> anonymousAuthData = new HashMap<>();
+    anonymousAuthData.put("anonymousToken", "anonymousTest");
+    user.putAuthData(ParseAnonymousUtils.AUTH_TYPE, anonymousAuthData);
+  }
 }

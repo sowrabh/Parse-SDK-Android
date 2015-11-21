@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -89,26 +90,47 @@ import bolts.Task;
 
   private Logger log; // Why is there a custom logger? To prevent Mockito deadlock!
 
+  private final ParseHttpClient httpClient;
+
   ConnectivityNotifier notifier;
   ConnectivityNotifier.ConnectivityListener listener = new ConnectivityNotifier.ConnectivityListener() {
     @Override
     public void networkConnectivityStatusChanged(Context context, Intent intent) {
-      boolean connectionLost =
+      final boolean connectionLost =
           intent.getBooleanExtra(ConnectivityManager.EXTRA_NO_CONNECTIVITY, false);
-      if (connectionLost) {
-        setConnected(false);
-      } else {
-        setConnected(ConnectivityNotifier.isConnected(context));
-      }
+      final boolean isConnected = ConnectivityNotifier.isConnected(context);
+
+      /*
+       Hack to avoid blocking the UI thread with disk I/O
+
+       setConnected uses the same lock we use for synchronizing disk I/O, so there's a possibility
+       that we can block the UI thread on disk I/O, so we're going to bump the lock usage to a
+       different thread.
+
+       TODO(grantland): Convert to TaskQueue, similar to ParsePinningEventuallyQueue
+        */
+      Task.call(new Callable<Void>() {
+        @Override
+        public Void call() throws Exception {
+          if (connectionLost) {
+            setConnected(false);
+          } else {
+            setConnected(isConnected);
+          }
+          return null;
+        }
+      }, ParseExecutors.io());
     }
   };
 
-  public ParseCommandCache(Context context) {
+  public ParseCommandCache(Context context, ParseHttpClient client) {
     setConnected(false);
+
     shouldStop = false;
     running = false;
 
     runningLock = new Object();
+    httpClient = client;
 
     log = Logger.getLogger(TAG);
 
@@ -508,7 +530,7 @@ import bolts.Task;
             }
             notifyTestHelper(TestHelper.COMMAND_OLD_FORMAT_DISCARDED);
           } else {
-            commandTask = command.executeAsync().continueWithTask(new Continuation<JSONObject, Task<JSONObject>>() {
+            commandTask = command.executeAsync(httpClient).continueWithTask(new Continuation<JSONObject, Task<JSONObject>>() {
               @Override
               public Task<JSONObject> then(Task<JSONObject> task) throws Exception {
                 String localId = command.getLocalId();

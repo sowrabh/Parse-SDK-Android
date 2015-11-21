@@ -8,6 +8,8 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -89,10 +91,10 @@ import bolts.Task;
     int type = TYPE_COMMAND;
     JSONObject json = null;
     if (command.httpPath.startsWith("classes")) {
-      if (command.method == ParseRequest.Method.POST ||
-          command.method == ParseRequest.Method.PUT) {
+      if (command.method == ParseHttpRequest.Method.POST ||
+          command.method == ParseHttpRequest.Method.PUT) {
         type = TYPE_SAVE;
-      } else if (command.method == ParseRequest.Method.DELETE) {
+      } else if (command.method == ParseHttpRequest.Method.DELETE) {
         type = TYPE_DELETE;
       }
     } else {

@@ -8,6 +8,8 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpBody;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -15,8 +17,8 @@ import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 
 /** package */ class ParseByteArrayHttpBody extends ParseHttpBody {
-  protected final byte[] content;
-  protected final InputStream contentInputStream;
+  /* package */ final byte[] content;
+  /* package */ final InputStream contentInputStream;
 
   public ParseByteArrayHttpBody(String content, String contentType)
       throws UnsupportedEncodingException {

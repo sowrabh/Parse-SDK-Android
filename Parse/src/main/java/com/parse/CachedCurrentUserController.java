@@ -46,7 +46,7 @@ import bolts.Task;
       public Task<Void> then(Task<Void> toAwait) throws Exception {
         return toAwait.continueWithTask(new Continuation<Void, Task<Void>>() {
           @Override
-          public Task<Void> then(Task<Void> ignored) throws Exception {
+          public Task<Void> then(Task<Void> task) throws Exception {
             ParseUser oldCurrentUser;
             synchronized (mutex) {
               oldCurrentUser = currentUser;
@@ -55,14 +55,24 @@ import bolts.Task;
             if (oldCurrentUser != null && oldCurrentUser != user) {
               // We don't need to revoke the token since we're not explicitly calling logOut
               // We don't need to remove persisted files since we're overwriting them
-              oldCurrentUser.logOutInternal();
+              return oldCurrentUser.logOutAsync(false).continueWith(new Continuation<Void, Void>() {
+                @Override
+                public Void then(Task<Void> task) throws Exception {
+                  return null; // ignore errors
+                }
+              });
             }
-
-            synchronized (user.mutex) {
-              user.setIsCurrentUser(true);
-              user.synchronizeAllAuthData();
-            }
-
+            return task;
+          }
+        }).onSuccessTask(new Continuation<Void, Task<Void>>() {
+          @Override
+          public Task<Void> then(Task<Void> task) throws Exception {
+            user.setIsCurrentUser(true);
+            return user.synchronizeAllAuthDataAsync();
+          }
+        }).onSuccessTask(new Continuation<Void, Task<Void>>() {
+          @Override
+          public Task<Void> then(Task<Void> task) throws Exception {
             return store.setAsync(user).continueWith(new Continuation<Void, Void>() {
               @Override
               public Void then(Task<Void> task) throws Exception {
@@ -156,7 +166,7 @@ import bolts.Task;
   }
 
   @Override
-  public Task<Void> logoutAsync() {
+  public Task<Void> logOutAsync() {
     return taskQueue.enqueue(new Continuation<Void, Task<Void>>() {
       @Override
       public Task<Void> then(Task<Void> toAwait) throws Exception {
@@ -241,8 +251,6 @@ import bolts.Task;
                 if (current != null) {
                   synchronized (current.mutex) {
                     current.setIsCurrentUser(true);
-                    current.isLazy = current.getObjectId() == null
-                        && ParseAnonymousUtils.isLinked(current);
                   }
                   return current;
                 }
@@ -260,17 +268,15 @@ import bolts.Task;
   }
 
   private ParseUser lazyLogIn() {
-    AnonymousAuthenticationProvider provider = ParseAnonymousUtils.getProvider();
-    String authType = provider.getAuthType();
-    Map<String, String> authData = provider.getAuthData();
-    return lazyLogIn(authType, authData);
+    Map<String, String> authData = ParseAnonymousUtils.getAuthData();
+    return lazyLogIn(ParseAnonymousUtils.AUTH_TYPE, authData);
   }
 
   /* package for tests */ ParseUser lazyLogIn(String authType, Map<String, String> authData) {
+    // Note: if authType != ParseAnonymousUtils.AUTH_TYPE the user is not "lazy".
     ParseUser user = ParseObject.create(ParseUser.class);
     synchronized (user.mutex) {
       user.setIsCurrentUser(true);
-      user.isLazy = true;
       user.putAuthData(authType, authData);
     }
 

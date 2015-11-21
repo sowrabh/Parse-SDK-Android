@@ -10,6 +10,8 @@ package com.parse;
 
 import android.net.Uri;
 
+import com.parse.http.ParseHttpRequest;
+
 import org.json.JSONObject;
 
 import java.util.Date;
@@ -24,7 +26,10 @@ import java.util.Map;
   // Tracks the AppOpened event
   /* package for test */ static final String EVENT_APP_OPENED = "AppOpened";
 
-  public ParseRESTAnalyticsCommand(String httpPath, Method httpMethod, Map<String, ?> parameters,
+  public ParseRESTAnalyticsCommand(
+      String httpPath,
+      ParseHttpRequest.Method httpMethod,
+      Map<String, ?> parameters,
       String sessionToken) {
     super(httpPath, httpMethod, parameters, sessionToken);
   }
@@ -57,6 +62,7 @@ import java.util.Map;
       commandParameters.putAll(parameters);
     }
     commandParameters.put("at", NoObjectsEncoder.get().encode(new Date()));
-    return new ParseRESTAnalyticsCommand(httpPath, Method.POST, commandParameters, sessionToken);
+    return new ParseRESTAnalyticsCommand(
+        httpPath, ParseHttpRequest.Method.POST, commandParameters, sessionToken);
   }
 }

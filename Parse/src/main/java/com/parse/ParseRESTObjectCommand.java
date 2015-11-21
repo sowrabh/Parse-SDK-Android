@@ -10,14 +10,16 @@ package com.parse;
 
 import android.net.Uri;
 
-import org.json.JSONObject;
+import com.parse.http.ParseHttpRequest;
 
-import java.net.URI;
-import java.util.Map;
+import org.json.JSONObject;
 
 /** package */ class ParseRESTObjectCommand extends ParseRESTCommand {
 
-  public ParseRESTObjectCommand(String httpPath, Method httpMethod, JSONObject parameters,
+  public ParseRESTObjectCommand(
+      String httpPath,
+      ParseHttpRequest.Method httpMethod,
+      JSONObject parameters,
       String sessionToken) {
     super(httpPath, httpMethod, parameters, sessionToken);
   }
@@ -25,7 +27,7 @@ import java.util.Map;
   public static ParseRESTObjectCommand getObjectCommand(String objectId, String className,
       String sessionToken) {
     String httpPath = String.format("classes/%s/%s", Uri.encode(className), Uri.encode(objectId));
-    return new ParseRESTObjectCommand(httpPath, Method.GET, null, sessionToken);
+    return new ParseRESTObjectCommand(httpPath, ParseHttpRequest.Method.GET, null, sessionToken);
   }
 
   public static ParseRESTObjectCommand saveObjectCommand(
@@ -47,13 +49,13 @@ import java.util.Map;
   private static ParseRESTObjectCommand createObjectCommand(String className, JSONObject changes,
       String sessionToken) {
     String httpPath = String.format("classes/%s", Uri.encode(className));
-    return new ParseRESTObjectCommand(httpPath, Method.POST, changes, sessionToken);
+    return new ParseRESTObjectCommand(httpPath, ParseHttpRequest.Method.POST, changes, sessionToken);
   }
 
   private static ParseRESTObjectCommand updateObjectCommand(String objectId, String className,
       JSONObject changes, String sessionToken) {
     String httpPath = String.format("classes/%s/%s", Uri.encode(className), Uri.encode(objectId));
-    return new ParseRESTObjectCommand(httpPath, Method.PUT, changes, sessionToken);
+    return new ParseRESTObjectCommand(httpPath, ParseHttpRequest.Method.PUT, changes, sessionToken);
   }
 
   public static ParseRESTObjectCommand deleteObjectCommand(
@@ -63,6 +65,6 @@ import java.util.Map;
     if (objectId != null) {
       httpPath += String.format("/%s", Uri.encode(objectId));
     }
-    return new ParseRESTObjectCommand(httpPath, Method.DELETE, null, sessionToken);
+    return new ParseRESTObjectCommand(httpPath, ParseHttpRequest.Method.DELETE, null, sessionToken);
   }
 }

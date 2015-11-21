@@ -8,6 +8,9 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -75,7 +78,7 @@ import bolts.Task;
     Map<String, List<JSONObject>> parameters = new HashMap<>();
     parameters.put("requests", requests);
     ParseRESTCommand command = new ParseRESTObjectBatchCommand(
-        "batch", Method.POST, parameters, sessionToken);
+        "batch", ParseHttpRequest.Method.POST, parameters, sessionToken);
 
     command.executeAsync(client).continueWith(new Continuation<JSONObject, Void>() {
       @Override
@@ -126,7 +129,10 @@ import bolts.Task;
     return tasks;
   }
 
-  private ParseRESTObjectBatchCommand(String httpPath, Method httpMethod, Map<String, ?> parameters,
+  private ParseRESTObjectBatchCommand(
+      String httpPath,
+      ParseHttpRequest.Method httpMethod,
+      Map<String, ?> parameters,
       String sessionToken) {
     super(httpPath, httpMethod, parameters, sessionToken);
   }

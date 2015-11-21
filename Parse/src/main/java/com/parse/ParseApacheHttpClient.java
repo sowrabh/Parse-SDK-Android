@@ -12,6 +12,10 @@ import android.net.SSLCertificateSocketFactory;
 import android.net.SSLSessionCache;
 import android.net.http.AndroidHttpClient;
 
+import com.parse.http.ParseHttpBody;
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHost;
@@ -31,11 +35,11 @@ import org.apache.http.conn.scheme.Scheme;
 import org.apache.http.conn.scheme.SchemeRegistry;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.conn.tsccm.ThreadSafeClientConnManager;
 import org.apache.http.params.BasicHttpParams;
 import org.apache.http.params.HttpConnectionParams;
 import org.apache.http.params.HttpParams;
-import org.apache.http.params.HttpProtocolParams;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -92,6 +96,14 @@ import java.util.Map;
 
     ClientConnectionManager manager = new ThreadSafeClientConnManager(params, schemeRegistry);
     apacheClient = new DefaultHttpClient(manager, params);
+
+    // Disable retry logic by ApacheHttpClient. When we leave the app idle for 3 - 5 min, the next
+    // request will always fail with NoHttpResponseException: The target server failed to respond,
+    // in this situation, the Apache httpClient will try to retry the request,
+    // however, since we use InputStreamEntity which is non-repeatable, we will see the
+    // NonRepeatableRequestException: Cannot retry request with a non-repeatable request entity.
+    // We disable the retry logic by ApacheHttpClient to expose the real issue
+    apacheClient.setHttpRequestRetryHandler(new DefaultHttpRequestRetryHandler(0, false));
   }
 
   @Override
@@ -116,7 +128,9 @@ import java.util.Map;
     int statusCode = apacheResponse.getStatusLine().getStatusCode();
 
     // Content
-    InputStream content = AndroidHttpClient.getUngzippedContent(apacheResponse.getEntity());
+    InputStream content = disableHttpLibraryAutoDecompress() ?
+        apacheResponse.getEntity().getContent() :
+        AndroidHttpClient.getUngzippedContent(apacheResponse.getEntity());
 
     // Total size
     int totalSize = -1;
@@ -147,7 +161,7 @@ import java.util.Map;
         .setStatusCode(statusCode)
         .setContent(content)
         .setTotalSize(totalSize)
-        .setReasonPhase(reasonPhrase)
+        .setReasonPhrase(reasonPhrase)
         .setHeaders(headers)
         .setContentType(contentType)
         .build();
@@ -163,7 +177,7 @@ import java.util.Map;
     }
 
     HttpUriRequest apacheRequest;
-    ParseRequest.Method method = parseRequest.getMethod();
+    ParseHttpRequest.Method method = parseRequest.getMethod();
     String url = parseRequest.getUrl();
     switch (method) {
       case GET:
@@ -212,7 +226,7 @@ import java.util.Map;
   private static class ParseApacheHttpEntity extends InputStreamEntity {
     private ParseHttpBody parseBody;
 
-    public ParseApacheHttpEntity(ParseHttpBody parseBody) {
+    public ParseApacheHttpEntity(ParseHttpBody parseBody) throws IOException {
       super(parseBody.getContent(), parseBody.getContentLength());
       super.setContentType(parseBody.getContentType());
       this.parseBody = parseBody;

@@ -37,3 +37,4 @@ public interface GetDataCallback extends ParseCallback2<byte[], ParseException> 
   @Override
   public void done(byte[] data, ParseException e);
 }
+

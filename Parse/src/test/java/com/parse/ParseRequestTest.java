@@ -8,13 +8,20 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpBody;
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
@@ -33,6 +40,9 @@ import static org.mockito.Mockito.when;
 public class ParseRequestTest {
 
   private static byte[] data;
+
+  @Rule
+  public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
   @BeforeClass
   public static void setUpClass() {
@@ -60,7 +70,7 @@ public class ParseRequestTest {
     ParseHttpClient mockHttpClient = mock(ParseHttpClient.class);
     when(mockHttpClient.execute(any(ParseHttpRequest.class))).thenThrow(new IOException());
 
-    TestParseRequest request = new TestParseRequest(ParseRequest.Method.GET, "http://parse.com");
+    TestParseRequest request = new TestParseRequest(ParseHttpRequest.Method.GET, "http://parse.com");
     Task<String> task = request.executeAsync(mockHttpClient);
     task.waitForCompletion();
 
@@ -70,21 +80,24 @@ public class ParseRequestTest {
   // TODO(grantland): Move to ParseAWSRequestTest or ParseCountingByteArrayHttpBodyTest
   @Test
   public void testDownloadProgress() throws Exception {
-    ParseHttpResponse mockResponse = mock(ParseHttpResponse.class);
-    when(mockResponse.getStatusCode()).thenReturn(200);
-    when(mockResponse.getContent()).thenReturn(new ByteArrayInputStream(data));
-    when(mockResponse.getTotalSize()).thenReturn(data.length);
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(200)
+        .setTotalSize((long) data.length)
+        .setContent(new ByteArrayInputStream(data))
+        .build();
 
     ParseHttpClient mockHttpClient = mock(ParseHttpClient.class);
     when(mockHttpClient.execute(any(ParseHttpRequest.class))).thenReturn(mockResponse);
 
-    ParseAWSRequest request = new ParseAWSRequest(ParseRequest.Method.GET, "localhost");
+    File tempFile = temporaryFolder.newFile("test");
+    ParseAWSRequest request =
+        new ParseAWSRequest(ParseHttpRequest.Method.GET, "localhost", tempFile);
     TestProgressCallback downloadProgressCallback = new TestProgressCallback();
-    Task<byte[]> task = request.executeAsync(mockHttpClient, null, downloadProgressCallback);
+    Task<Void> task = request.executeAsync(mockHttpClient, null, downloadProgressCallback);
 
     task.waitForCompletion();
     assertFalse("Download failed: " + task.getError(), task.isFaulted());
-    assertEquals(data.length, task.getResult().length);
+    assertEquals(data.length, ParseFileUtils.readFileToByteArray(tempFile).length);
 
     assertProgressCompletedSuccessfully(downloadProgressCallback);
   }
@@ -118,7 +131,7 @@ public class ParseRequestTest {
 
   private static class TestParseRequest extends ParseRequest<String> {
 
-    public TestParseRequest(Method method, String url) {
+    public TestParseRequest(ParseHttpRequest.Method method, String url) {
       super(method, url);
     }
 

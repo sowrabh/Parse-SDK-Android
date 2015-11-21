@@ -10,7 +10,9 @@ package com.parse;
 
 import android.os.Build;
 
-import org.apache.http.client.ClientProtocolException;
+import com.parse.http.ParseHttpBody;
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
 
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
@@ -63,72 +65,10 @@ import bolts.Task;
       CORE_POOL_SIZE, MAX_POOL_SIZE, KEEP_ALIVE_TIME, TimeUnit.SECONDS,
       new LinkedBlockingQueue<Runnable>(MAX_QUEUE_SIZE), sThreadFactory);
 
-  public enum Method {
-    GET, POST, PUT, DELETE;
-
-    public static Method fromString(String string) {
-      Method method = null;
-      switch (string) {
-        case "GET":
-          method = GET;
-          break;
-        case "POST":
-          method = POST;
-          break;
-        case "PUT":
-          method = PUT;
-          break;
-        case "DELETE":
-          method = DELETE;
-          break;
-        default:
-          break;
-      }
-      return method;
-    }
-
-    @Override
-    public String toString() {
-      String string = null;
-      switch (this) {
-        case GET:
-          string = "GET";
-          break;
-        case POST:
-          string = "POST";
-          break;
-        case PUT:
-          string = "PUT";
-          break;
-        case DELETE:
-          string = "DELETE";
-          break;
-        default:
-          break;
-      }
-      return string;
-    }
-  }
-
   protected static final int DEFAULT_MAX_RETRIES = 4;
   /* package */ static final long DEFAULT_INITIAL_RETRY_DELAY = 1000L;
 
   private static long defaultInitialRetryDelay = DEFAULT_INITIAL_RETRY_DELAY;
-
-  // TODO(grantland): Remove once we're able to inject a http client into all of our controllers
-  // and we don't need this for mocking anymore.
-  private static ParseHttpClient defaultClient = null;
-  @Deprecated
-  public static void setDefaultClient(ParseHttpClient client) {
-    defaultClient = client;
-  }
-  @Deprecated
-  public static ParseHttpClient getDefaultClient() {
-    if (defaultClient == null) {
-      throw new IllegalStateException("Can't send Parse HTTPS request before Parse.initialize()");
-    }
-    return defaultClient;
-  }
 
   public static void setDefaultInitialRetryDelay(long delay) {
     defaultInitialRetryDelay = delay;
@@ -139,14 +79,14 @@ import bolts.Task;
 
   private int maxRetries = DEFAULT_MAX_RETRIES;
 
-  /* package */ Method method;
+  /* package */ ParseHttpRequest.Method method;
   /* package */ String url;
 
   public ParseRequest(String url) {
-    this(Method.GET, url);
+    this(ParseHttpRequest.Method.GET, url);
   }
 
-  public ParseRequest(Method method, String url) {
+  public ParseRequest(ParseHttpRequest.Method method, String url) {
     this.method = method;
     this.url = url;
   }
@@ -161,7 +101,7 @@ import bolts.Task;
   }
 
   protected ParseHttpRequest newRequest(
-      Method method,
+      ParseHttpRequest.Method method,
       String url,
       ProgressCallback uploadProgressCallback)  {
     ParseHttpRequest.Builder requestBuilder = new ParseHttpRequest.Builder()
@@ -200,9 +140,7 @@ import bolts.Task;
       public Task<Response> then(Task<Response> task) throws Exception {
         if (task.isFaulted()) {
           Exception error = task.getError();
-          if (error instanceof ClientProtocolException) {
-            return Task.forError(newTemporaryException("bad protocol", error));
-          } else if (error instanceof IOException) {
+          if (error instanceof IOException) {
             return Task.forError(newTemporaryException("i/o failure", error));
           }
         }
@@ -213,23 +151,6 @@ import bolts.Task;
 
   protected abstract Task<Response> onResponseAsync(ParseHttpResponse response,
       ProgressCallback downloadProgressCallback);
-
-  @Deprecated
-  public Task<Response> executeAsync() {
-    return executeAsync(getDefaultClient());
-  }
-
-  @Deprecated
-  public Task<Response> executeAsync(
-      ProgressCallback uploadProgressCallback,
-      ProgressCallback downloadProgressCallback,
-      Task<Void> cancellationToken) {
-    return executeAsync(
-        getDefaultClient(),
-        uploadProgressCallback,
-        downloadProgressCallback,
-        cancellationToken);
-  }
 
   /*
    * Starts retrying the block.

@@ -8,6 +8,8 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+
 import org.json.JSONObject;
 
 import java.util.HashMap;
@@ -21,14 +23,16 @@ import java.util.Set;
       ParseQuery.State<T> state, String sessionToken) {
     String httpPath = String.format("classes/%s", state.className());
     Map <String, String> parameters = encode(state, false);
-    return new ParseRESTQueryCommand(httpPath, Method.GET, parameters, sessionToken);
+    return new ParseRESTQueryCommand(
+        httpPath, ParseHttpRequest.Method.GET, parameters, sessionToken);
   }
 
   public static <T extends ParseObject> ParseRESTQueryCommand countCommand(
       ParseQuery.State<T> state, String sessionToken) {
     String httpPath = String.format("classes/%s", state.className());
     Map <String, String> parameters = encode(state, true);
-    return new ParseRESTQueryCommand(httpPath, Method.GET, parameters, sessionToken);
+    return new ParseRESTQueryCommand(
+        httpPath, ParseHttpRequest.Method.GET, parameters, sessionToken);
   }
 
   /* package */ static <T extends ParseObject> Map<String, String> encode(
@@ -84,7 +88,10 @@ import java.util.Set;
     return parameters;
   }
 
-  private ParseRESTQueryCommand(String httpPath, Method httpMethod, Map<String, ?> parameters,
+  private ParseRESTQueryCommand(
+      String httpPath,
+      ParseHttpRequest.Method httpMethod,
+      Map<String, ?> parameters,
       String sessionToken) {
     super(httpPath, httpMethod, parameters, sessionToken);
   }

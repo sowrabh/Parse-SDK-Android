@@ -8,10 +8,10 @@
  */
 package com.parse;
 
-import junit.framework.TestCase;
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
 
-import org.junit.Rule;
-import org.junit.rules.ExpectedException;
+import junit.framework.TestCase;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
@@ -35,17 +35,19 @@ public class ParseAWSRequestTest extends TestCase {
     ParseRequest.setDefaultInitialRetryDelay(1L);
     InputStream mockInputStream = new ByteArrayInputStream(
         "An Error occurred while saving".getBytes());
-    ParseHttpResponse mockResponse = mock(ParseHttpResponse.class);
-    when(mockResponse.getStatusCode()).thenReturn(400);
-    when(mockResponse.getTotalSize()).thenReturn(0);
-    when(mockResponse.getReasonPhrase()).thenReturn("Bad Request");
-    when(mockResponse.getContent()).thenReturn(mockInputStream);
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(400)
+        .setTotalSize(0L)
+        .setReasonPhrase("Bad Request")
+        .setContent(mockInputStream)
+        .build();
 
     ParseHttpClient mockHttpClient = mock(ParseHttpClient.class);
     when(mockHttpClient.execute(any(ParseHttpRequest.class))).thenReturn(mockResponse);
 
-    ParseAWSRequest request = new ParseAWSRequest(ParseRequest.Method.GET, "http://parse.com");
-    Task<byte[]> task = request.executeAsync(mockHttpClient);
+    ParseAWSRequest request =
+        new ParseAWSRequest(ParseHttpRequest.Method.GET, "http://parse.com", null);
+    Task<Void> task = request.executeAsync(mockHttpClient);
     task.waitForCompletion();
 
     assertTrue(task.isFaulted());

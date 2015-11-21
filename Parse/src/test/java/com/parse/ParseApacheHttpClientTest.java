@@ -8,6 +8,9 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.apache.http.ProtocolVersion;
 import org.apache.http.client.methods.HttpDelete;
 import org.apache.http.client.methods.HttpGet;
@@ -19,7 +22,6 @@ import org.apache.http.message.BasicHttpResponse;
 import org.apache.http.message.BasicStatusLine;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mockito;
 import org.robolectric.RobolectricGradleTestRunner;
 import org.robolectric.annotation.Config;
 
@@ -31,7 +33,6 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 // For android.net.SSLCertificateSocketFactory
@@ -47,7 +48,7 @@ public class ParseApacheHttpClientTest {
 
     // Get
     ParseHttpRequest parseRequest = builder
-        .setMethod(ParseRequest.Method.GET)
+        .setMethod(ParseHttpRequest.Method.GET)
         .setBody(null)
         .build();
     HttpUriRequest apacheRequest = parseClient.getRequest(parseRequest);
@@ -55,7 +56,7 @@ public class ParseApacheHttpClientTest {
 
     // Post
     parseRequest = builder
-        .setMethod(ParseRequest.Method.POST)
+        .setMethod(ParseHttpRequest.Method.POST)
         .setBody(new ParseByteArrayHttpBody("test", "application/json"))
         .build();
     apacheRequest = parseClient.getRequest(parseRequest);
@@ -63,7 +64,7 @@ public class ParseApacheHttpClientTest {
 
     // Delete
     parseRequest = builder
-        .setMethod(ParseRequest.Method.DELETE)
+        .setMethod(ParseHttpRequest.Method.DELETE)
         .setBody(null)
         .build();
     apacheRequest = parseClient.getRequest(parseRequest);
@@ -71,7 +72,7 @@ public class ParseApacheHttpClientTest {
 
     // Put
     parseRequest = builder
-        .setMethod(ParseRequest.Method.PUT)
+        .setMethod(ParseHttpRequest.Method.PUT)
         .setBody(new ParseByteArrayHttpBody("test", "application/json"))
         .build();
     apacheRequest = parseClient.getRequest(parseRequest);
@@ -89,7 +90,7 @@ public class ParseApacheHttpClientTest {
     String contentType = "application/json";
     ParseHttpRequest parseRequest = new ParseHttpRequest.Builder()
         .setUrl(url)
-        .setMethod(ParseRequest.Method.POST)
+        .setMethod(ParseHttpRequest.Method.POST)
         .setBody(new ParseByteArrayHttpBody(content, contentType))
         .setHeaders(headers)
         .build();
@@ -123,7 +124,7 @@ public class ParseApacheHttpClientTest {
     String content = "test";
     ParseHttpRequest parseRequest = new ParseHttpRequest.Builder()
         .setUrl(url)
-        .setMethod(ParseRequest.Method.POST)
+        .setMethod(ParseHttpRequest.Method.POST)
         .setBody(new ParseByteArrayHttpBody(content, null))
         .build();
 
@@ -152,7 +153,7 @@ public class ParseApacheHttpClientTest {
 
     // Verify status code
     assertEquals(statusCode, parseResponse.getStatusCode());
-    // Verify reason phase
+    // Verify reason phrase
     assertEquals(reasonPhrase, parseResponse.getReasonPhrase());
     // Verify content length
     assertEquals(7, parseResponse.getTotalSize());

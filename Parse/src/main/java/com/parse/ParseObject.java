@@ -21,7 +21,6 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -52,7 +51,7 @@ import bolts.Task;
 public class ParseObject {
   /* package */ static String server = "https://api.parse.com";
   private static final String AUTO_CLASS_NAME = "_Automatic";
-  /* package */ static final String VERSION_NAME = "1.10.1-SNAPSHOT";
+  /* package */ static final String VERSION_NAME = "1.11.1-SNAPSHOT";
 
   /*
   REST JSON Keys
@@ -306,8 +305,6 @@ public class ParseObject {
 
   // Cached State
   private final Map<String, Object> estimatedData;
-  private final Map<String, Boolean> dataAvailability;
-  private final Map<Object, ParseJSONCacheItem> hashedObjects; // For mutable containers
 
   private String localId;
   private final ParseMulticastDelegate<ParseObject> saveEvent = new ParseMulticastDelegate<>();
@@ -384,8 +381,6 @@ public class ParseObject {
     operationSetQueue = new LinkedList<>();
     operationSetQueue.add(new ParseOperationSet());
     estimatedData = new HashMap<>();
-    hashedObjects = new IdentityHashMap<>();
-    dataAvailability = new HashMap<>();
 
     State.Init<?> builder = newStateBuilder(theClassName);
     // When called from new, assume hasData for the whole object is true.
@@ -617,16 +612,6 @@ public class ParseObject {
     }
   }
 
-  private void addToHashedObjects(Object object) {
-    synchronized (mutex) {
-      try {
-        hashedObjects.put(object, new ParseJSONCacheItem(object));
-      } catch (JSONException e) {
-        throw new IllegalArgumentException("Couldn't serialize container value to JSON.");
-      }
-    }
-  }
-
   /**
    * Converts a {@code ParseObject.State} to a {@code ParseObject}.
    *
@@ -754,8 +739,6 @@ public class ParseObject {
       }
 
       rebuildEstimatedData();
-      rebuildDataAvailability();
-      checkpointAllMutableContainers();
     }
   }
 
@@ -839,12 +822,18 @@ public class ParseObject {
     }
   }
 
-  /* package */ void revert(String key) {
+  /**
+   * Clears changes to this object's {@code key} made since the last call to {@link #save()} or
+   * {@link #saveInBackground()}.
+   *
+   * @param key The {@code key} to revert changes for.
+   */
+  public void revert(String key) {
     synchronized (mutex) {
-      currentOperations().remove(key);
-      rebuildEstimatedData();
-      rebuildDataAvailability();
-      checkpointAllMutableContainers();
+      if (isDirty(key)) {
+        currentOperations().remove(key);
+        rebuildEstimatedData();
+      }
     }
   }
 
@@ -852,12 +841,12 @@ public class ParseObject {
    * Clears any changes to this object made since the last call to {@link #save()} or
    * {@link #saveInBackground()}.
    */
-  /* package for tests */ void revert() {
+  public void revert() {
     synchronized (mutex) {
-      currentOperations().clear();
-      rebuildEstimatedData();
-      rebuildDataAvailability();
-      checkpointAllMutableContainers();
+      if (isDirty()) {
+        currentOperations().clear();
+        rebuildEstimatedData();
+      }
     }
   }
 
@@ -1031,8 +1020,6 @@ public class ParseObject {
 
   /* package */ JSONObject toRest(
       State state, List<ParseOperationSet> operationSetQueue, ParseEncoder objectEncoder) {
-      checkForChangesToMutableContainers();
-
       // Public data goes in dataJSON; special fields go in objectJSON.
       JSONObject json = new JSONObject();
 
@@ -1182,7 +1169,6 @@ public class ParseObject {
 
   /* package */ boolean isDirty(boolean considerChildren) {
     synchronized (mutex) {
-      checkForChangesToMutableContainers();
       return (isDeleted || getObjectId() == null || hasChanges() || (considerChildren && hasDirtyChildren()));
     }
   }
@@ -1216,80 +1202,6 @@ public class ParseObject {
       return currentOperations().containsKey(key);
     }
   }
-
-  //region Mutable Containers
-
-  /* package */ boolean isContainerObject(String key, Object object) {
-    return (object instanceof JSONObject || object instanceof JSONArray
-        || object instanceof Map || object instanceof List
-        || object instanceof ParseACL || object instanceof ParseGeoPoint);
-  }
-
-  /**
-   * Updates the JSON cache value for all of the values in estimatedData.
-   */
-  private void checkpointAllMutableContainers() {
-    synchronized (mutex) {
-      for (Map.Entry<String, Object> entry : estimatedData.entrySet()) {
-        checkpointMutableContainer(entry.getKey(), entry.getValue());
-      }
-    }
-  }
-
-  /**
-   * Updates the JSON cache value for the given object.
-   */
-  private void checkpointMutableContainer(String key, Object object) {
-    synchronized (mutex) {
-      if (isContainerObject(key, object)) {
-        addToHashedObjects(object);
-      }
-    }
-  }
-
-  /**
-   * Inspects to see if a given mutable container owned by this object has been mutated, and treats
-   * any mutation as a new {@link #put(String, Object)} call.
-   */
-  private void checkForChangesToMutableContainer(String key, Object object) {
-    synchronized (mutex) {
-      if (isContainerObject(key, object)) {
-        ParseJSONCacheItem oldCacheItem = hashedObjects.get(object);
-        if (oldCacheItem == null) {
-          throw new IllegalArgumentException(
-              "ParseObject contains container item that isn't cached.");
-        } else {
-          ParseJSONCacheItem newCacheItem;
-          try {
-            newCacheItem = new ParseJSONCacheItem(object);
-          } catch (JSONException e) {
-            throw new RuntimeException(e);
-          }
-          if (!oldCacheItem.equals(newCacheItem)) {
-            // A mutable container changed out from under us. Treat it as a set operation.
-            performOperation(key, new ParseSetOperation(object));
-          }
-        }
-      } else {
-        hashedObjects.remove(object);
-      }
-    }
-  }
-
-  /**
-   * Inspects to see if any mutable container owned by this object has been mutated, and treats any
-   * mutation as a new {@link #put(String, Object)} call.
-   */
-  /* package */ void checkForChangesToMutableContainers() {
-    synchronized (mutex) {
-      for (String key : estimatedData.keySet()) {
-        checkForChangesToMutableContainer(key, estimatedData.get(key));
-      }
-      hashedObjects.keySet().retainAll(estimatedData.values());
-    }
-  }
-
-  //endregion
 
   /**
    * Accessor to the object id. An object id is assigned as soon as an object is saved to the
@@ -1453,10 +1365,10 @@ public class ParseObject {
           operationSetQueue.listIterator(operationSetQueue.indexOf(operationsBeforeSave));
       opIterator.next();
       opIterator.remove();
-      ParseOperationSet nextOperation = opIterator.next();
 
       if (!success) {
         // Merge the data from the failed save into the next save.
+        ParseOperationSet nextOperation = opIterator.next();
         nextOperation.mergeFrom(operationsBeforeSave);
         return task;
       }
@@ -1655,11 +1567,13 @@ public class ParseObject {
 
   // Currently only used by ParsePinningEventuallyQueue for saveEventually due to the limitation in
   // ParseCommandCache that it can only return JSONObject result.
-  /* package */ Task<JSONObject> saveAsync(final ParseOperationSet operationSet, String sessionToken)
-      throws ParseException {
+  /* package */ Task<JSONObject> saveAsync(
+      ParseHttpClient client,
+      final ParseOperationSet operationSet,
+      String sessionToken) throws ParseException {
     final ParseRESTCommand command =
         currentSaveEventuallyCommand(operationSet, PointerEncoder.get(), sessionToken);
-    return command.executeAsync();
+    return command.executeAsync(client);
   }
 
   /**
@@ -2867,8 +2781,8 @@ public class ParseObject {
           T newObject = resultMap.get(object.getObjectId());
           if (newObject == null) {
             throw new ParseException(
-                    ParseException.OBJECT_NOT_FOUND,
-                    "Object id " + object.getObjectId() + " does not exist");
+                ParseException.OBJECT_NOT_FOUND,
+                "Object id " + object.getObjectId() + " does not exist");
           }
           if (!Parse.isLocalDatastoreEnabled()) {
             // We only need to merge if LDS is disabled, since single instance will do the merging
@@ -2960,18 +2874,6 @@ public class ParseObject {
   }
 
   /**
-   * Regenerates the dataAvailability map from the serverData.
-   */
-  private void rebuildDataAvailability() {
-    synchronized (mutex) {
-      dataAvailability.clear();
-      for (String key : state.keySet()) {
-        dataAvailability.put(key, true);
-      }
-    }
-  }
-
-  /**
    * performOperation() is like {@link #put(String, Object)} but instead of just taking a new value,
    * it takes a ParseFieldOperation that modifies the value.
    */
@@ -2988,9 +2890,6 @@ public class ParseObject {
       ParseFieldOperation oldOperation = currentOperations().get(key);
       ParseFieldOperation newOperation = operation.mergeWithPrevious(oldOperation);
       currentOperations().put(key, newOperation);
-
-      checkpointMutableContainer(key, newValue);
-      dataAvailability.put(key, Boolean.TRUE);
     }
   }
 
@@ -3518,7 +3417,6 @@ public class ParseObject {
       if (mayCopy && ((ParseACL) acl).isShared()) {
         ParseACL copy = ((ParseACL) acl).copy();
         estimatedData.put(KEY_ACL, copy);
-        addToHashedObjects(copy);
         return copy;
       }
       return (ParseACL) acl;
@@ -3544,10 +3442,9 @@ public class ParseObject {
     }
   }
 
-  private boolean isDataAvailable(String key) {
+  /* package for tests */ boolean isDataAvailable(String key) {
     synchronized (mutex) {
-      return isDataAvailable()
-          || (dataAvailability.containsKey(key) ? dataAvailability.get(key) : false);
+      return isDataAvailable() || estimatedData.containsKey(key);
     }
   }
 

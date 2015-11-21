@@ -22,6 +22,7 @@ import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -217,50 +218,48 @@ import java.util.List;
             && hasRequiredPpnsDeclarations
             && (!hasAnyGcmSpecificDeclaration || !isGooglePlayServicesAvailable)) {
           pushType = PushType.PPNS;
+
+          if (isGooglePlayServicesAvailable) {
+            Log.w(TAG, "Using PPNS for push even though Google Play Services is available." +
+                " Please " + getGcmManifestMessage());
+          }
         } else {
           pushType = PushType.NONE;
 
-          // Emit warnings if the client doesn't get push due to misconfiguration of the manifest.
-          if (hasAnyGcmSpecificDeclaration && !hasRequiredGcmDeclarations) {
+          if (hasAnyGcmSpecificDeclaration) {
+            if (!hasPushBroadcastReceiver) {
+            /* Throw an error if someone migrated from an old SDK and hasn't yet started using
+             * ParsePushBroadcastReceiver. */
+              PLog.e(TAG, "Push is currently disabled. This is probably because you migrated " +
+                  "from an older version of Parse. This version of Parse requires your app to " +
+                  "have a BroadcastReceiver that handles " +
+                  ParsePushBroadcastReceiver.ACTION_PUSH_RECEIVE + ", " +
+                  ParsePushBroadcastReceiver.ACTION_PUSH_OPEN + ", and " +
+                  ParsePushBroadcastReceiver.ACTION_PUSH_DELETE + ". You can do this by adding " +
+                  "these lines to your AndroidManifest.xml:\n\n" +
+                  " <receiver android:name=\"com.parse.ParsePushBroadcastReceiver\"\n" +
+                  "   android:exported=false>\n" +
+                  "  <intent-filter>\n" +
+                  "     <action android:name=\"com.parse.push.intent.RECEIVE\" />\n" +
+                  "     <action android:name=\"com.parse.push.intent.OPEN\" />\n" +
+                  "     <action android:name=\"com.parse.push.intent.DELETE\" />\n" +
+                  "   </intent-filter>\n" +
+                  " </receiver>");
+            }
+            if (!isGooglePlayServicesAvailable) {
+              PLog.e(TAG, "Cannot use GCM for push on this device because Google Play " +
+                  "Services is not available. Install Google Play Services from the Play Store.");
+            }
+            // Emit warnings if the client doesn't get push due to misconfiguration of the manifest.
+            if (!hasRequiredGcmDeclarations) {
             /*
              * If we detect that the app has some GCM-specific declarations, but not all required
              * declarations for GCM, then most likely the client means to use GCM but misconfigured
              * their manifest. Log an error in this case.
              */
-            PLog.e(TAG, "Cannot use GCM for push because the app manifest is missing some " +
-                "required declarations. Please " + getGcmManifestMessage());
-          } else if (!hasPushBroadcastReceiver &&
-              (hasRequiredGcmDeclarations || hasRequiredPpnsDeclarations)) {
-            /* Throw an error if someone migrated from an old SDK and hasn't yet started using
-             * ParsePushBroadcastReceiver. */
-            PLog.e(TAG, "Push is currently disabled. This is probably because you migrated from " +
-                "an older version of Parse. This version of Parse requires your app to have a " +
-                "BroadcastReceiver that handles " + ParsePushBroadcastReceiver.ACTION_PUSH_RECEIVE +
-                ", " + ParsePushBroadcastReceiver.ACTION_PUSH_OPEN + ", and " +
-                ParsePushBroadcastReceiver.ACTION_PUSH_DELETE + ". You can do this by adding " +
-                "these lines to your AndroidManifest.xml:\n\n" +
-                " <receiver android:name=\"com.parse.ParsePushBroadcastReceiver\"\n" +
-                "   android:exported=false>\n" +
-                "  <intent-filter>\n" +
-                "     <action android:name=\"com.parse.push.intent.RECEIVE\" />\n" +
-                "     <action android:name=\"com.parse.push.intent.OPEN\" />\n" +
-                "     <action android:name=\"com.parse.push.intent.DELETE\" />\n" +
-                "   </intent-filter>\n" +
-                " </receiver>");
-          } else if (hasPushBroadcastReceiver
-              && hasRequiredGcmDeclarations
-              && !isGooglePlayServicesAvailable) {
-            PLog.e(TAG, "Cannot use GCM for push on this device because Google Play " +
-                "Services is not installed. Install Google Play Service from the Play Store, " +
-                "or enable PPNS as a fallback push service." +
-                "\nTo enable PPNS as a fallback push service on devices without Google Play " +
-                "Service support, please include PPNS.jar in your application and " +
-                getPpnsManifestMessage());
-          } else if (hasPushBroadcastReceiver
-              && hasRequiredPpnsDeclarations
-              && !isPPNSAvailable) {
-            PLog.e(TAG, "Cannot use PPNS for push on this device because PPNS is not available. " +
-                "Include PPNS.jar in your application to use PPNS.");
+              PLog.e(TAG, "Cannot use GCM for push because the app manifest is missing some " +
+                  "required declarations. Please " + getGcmManifestMessage());
+            }
           }
         }
 
@@ -474,7 +473,6 @@ import java.util.List;
       "android.permission.INTERNET",
       "android.permission.ACCESS_NETWORK_STATE",
       "android.permission.WAKE_LOCK",
-      "android.permission.GET_ACCOUNTS",
       "com.google.android.c2dm.permission.RECEIVE",
       context.getPackageName() + ".permission.C2D_MESSAGE"
     };
@@ -550,27 +548,27 @@ import java.util.List;
     return "make sure that these permissions are declared as children " +
         "of the root <manifest> element:\n" + 
         "\n" + 
-        "<uses-permission android:name=\"android.permission.INTERNET\" />\n" + 
-        "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n" + 
-        "<uses-permission android:name=\"android.permission.VIBRATE\" />\n" + 
-        "<uses-permission android:name=\"android.permission.WAKE_LOCK\" />\n" + 
-        "<uses-permission android:name=\"android.permission.GET_ACCOUNTS\" />\n" + 
-        "<uses-permission android:name=\"com.google.android.c2dm.permission.RECEIVE\" />\n" + 
+        "<uses-permission android:name=\"android.permission.INTERNET\" />\n" +
+        "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n" +
+        "<uses-permission android:name=\"android.permission.VIBRATE\" />\n" +
+        "<uses-permission android:name=\"android.permission.WAKE_LOCK\" />\n" +
+        "<uses-permission android:name=\"android.permission.GET_ACCOUNTS\" />\n" +
+        "<uses-permission android:name=\"com.google.android.c2dm.permission.RECEIVE\" />\n" +
         "<permission android:name=\"" + gcmPackagePermission + "\" " +
-        "android:protectionLevel=\"signature\" />\n" + 
-        "<uses-permission android:name=\"" + gcmPackagePermission + "\" />\n" + 
-        "\n" + 
+        "android:protectionLevel=\"signature\" />\n" +
+        "<uses-permission android:name=\"" + gcmPackagePermission + "\" />\n" +
+        "\n" +
         "Also, please make sure that these services and broadcast receivers are declared as " +
-        "children of the <application> element:\n" + 
-        "\n" + 
-        "<service android:name=\"com.parse.PushService\" />\n" + 
+        "children of the <application> element:\n" +
+        "\n" +
+        "<service android:name=\"com.parse.PushService\" />\n" +
         "<receiver android:name=\"com.parse.GcmBroadcastReceiver\" " +
-        "android:permission=\"com.google.android.c2dm.permission.SEND\">\n" + 
-        "  <intent-filter>\n" + 
-        "    <action android:name=\"com.google.android.c2dm.intent.RECEIVE\" />\n" + 
-        "    <action android:name=\"com.google.android.c2dm.intent.REGISTRATION\" />\n" + 
+        "android:permission=\"com.google.android.c2dm.permission.SEND\">\n" +
+        "  <intent-filter>\n" +
+        "    <action android:name=\"com.google.android.c2dm.intent.RECEIVE\" />\n" +
+        "    <action android:name=\"com.google.android.c2dm.intent.REGISTRATION\" />\n" +
         "    <category android:name=\"" + packageName + "\" />\n" +
-        "  </intent-filter>\n" + 
+        "  </intent-filter>\n" +
         "</receiver>\n" +
         "<receiver android:name=\"com.parse.ParsePushBroadcastReceiver\"" +
         " android:exported=false>\n" +
@@ -584,23 +582,23 @@ import java.util.List;
   
   private static String getPpnsManifestMessage() {
     return "make sure that these permissions are declared as children of the root " +
-        "<manifest> element:\n" + 
-        "\n" + 
-        "<uses-permission android:name=\"android.permission.INTERNET\" />\n" + 
-        "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n" + 
-        "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" />\n" + 
-        "<uses-permission android:name=\"android.permission.VIBRATE\" />\n" + 
-        "<uses-permission android:name=\"android.permission.WAKE_LOCK\" />\n" + 
-        "\n" + 
+        "<manifest> element:\n" +
+        "\n" +
+        "<uses-permission android:name=\"android.permission.INTERNET\" />\n" +
+        "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n" +
+        "<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" />\n" +
+        "<uses-permission android:name=\"android.permission.VIBRATE\" />\n" +
+        "<uses-permission android:name=\"android.permission.WAKE_LOCK\" />\n" +
+        "\n" +
         "Also, please make sure that these services and broadcast receivers are declared as " +
-        "children of the <application> element:\n" + 
-        "\n" + 
-        "<service android:name=\"com.parse.PushService\" />\n" + 
-        "<receiver android:name=\"com.parse.ParseBroadcastReceiver\">\n" + 
-        "  <intent-filter>\n" + 
-        "    <action android:name=\"android.intent.action.BOOT_COMPLETED\" />\n" + 
-        "    <action android:name=\"android.intent.action.USER_PRESENT\" />\n" + 
-        "  </intent-filter>\n" + 
+        "children of the <application> element:\n" +
+        "\n" +
+        "<service android:name=\"com.parse.PushService\" />\n" +
+        "<receiver android:name=\"com.parse.ParseBroadcastReceiver\">\n" +
+        "  <intent-filter>\n" +
+        "    <action android:name=\"android.intent.action.BOOT_COMPLETED\" />\n" +
+        "    <action android:name=\"android.intent.action.USER_PRESENT\" />\n" +
+        "  </intent-filter>\n" +
         "</receiver>\n" +
         "<receiver android:name=\"com.parse.ParsePushBroadcastReceiver\"" +
         " android:exported=false>\n" +

@@ -8,6 +8,9 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.json.JSONObject;
 import org.junit.Rule;
 import org.junit.Test;
@@ -167,7 +170,7 @@ public class ParseConfigControllerTest {
 
   //TODO(mengyan) Create unit test helper and move all similar methods to the class
   private ParseHttpClient mockParseHttpClientWithResponse(JSONObject content, int statusCode,
-      String reasonPhase) throws IOException {
+      String reasonPhrase) throws IOException {
     byte[] contentBytes = content.toString().getBytes();
     ParseHttpResponse response = new ParseHttpResponse.Builder()
         .setContent(new ByteArrayInputStream(contentBytes))

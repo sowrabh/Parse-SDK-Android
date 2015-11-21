@@ -14,6 +14,8 @@ import android.content.pm.ResolveInfo;
 import android.os.Bundle;
 import android.util.Log;
 
+import com.parse.http.ParseNetworkInterceptor;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -46,8 +48,8 @@ public class Parse {
 
   /**
    * Enable pinning in your application. This must be called before your application can use
-   * pinning. You must invoke {@code Parse.enableLocalDatastore} before
-   * {@code Parse.initialize}:
+   * pinning. You must invoke {@code enableLocalDatastore(Context)} before
+   * {@link #initialize(Context)} :
    * <p/>
    * <pre>
    * public class MyApplication extends Application {
@@ -191,7 +193,6 @@ public class Parse {
 
     ParseHttpClient.setKeepAlive(true);
     ParseHttpClient.setMaxConnections(20);
-    ParseRequest.setDefaultClient(ParsePlugins.get().restClient());
     // If we have interceptors in list, we have to initialize all http clients and add interceptors
     if (interceptors != null) {
       initializeParseHttpClientsWithParseNetworkInterceptors();
@@ -412,15 +413,16 @@ public class Parse {
           || (isLocalDatastoreEnabled && eventuallyQueue instanceof ParseCommandCache)
           || (!isLocalDatastoreEnabled && eventuallyQueue instanceof ParsePinningEventuallyQueue)) {
         checkContext();
+        ParseHttpClient httpClient = ParsePlugins.get().restClient();
         eventuallyQueue = isLocalDatastoreEnabled
-          ? new ParsePinningEventuallyQueue(context)
-          : new ParseCommandCache(context);
+          ? new ParsePinningEventuallyQueue(context, httpClient)
+          : new ParseCommandCache(context, httpClient);
 
         // We still need to clear out the old command cache even if we're using Pinning in case
         // anything is left over when the user upgraded. Checking number of pending and then
         // initializing should be enough.
         if (isLocalDatastoreEnabled && ParseCommandCache.getPendingCount() > 0) {
-          new ParseCommandCache(context);
+          new ParseCommandCache(context, httpClient);
         }
       }
       return eventuallyQueue;
@@ -596,6 +598,9 @@ public class Parse {
 
     // Add interceptors to http clients
     for (ParseHttpClient parseHttpClient : clients) {
+      // We need to add the decompress interceptor before the external interceptors to return
+      // a decompressed response to Parse.
+      parseHttpClient.addInternalInterceptor(new ParseDecompressInterceptor());
       for (ParseNetworkInterceptor interceptor : interceptors) {
         parseHttpClient.addExternalInterceptor(interceptor);
       }
@@ -605,8 +610,16 @@ public class Parse {
     interceptors = null;
   }
 
-  // TODO(mengyan) Make public after we release the interceptor feature
-  /* package */ static void addParseNetworkInterceptor(ParseNetworkInterceptor interceptor) {
+
+  /**
+   * Add a {@link ParseNetworkInterceptor}. You must invoke
+   * {@code addParseNetworkInterceptor(ParseNetworkInterceptor)} before
+   * {@link #initialize(Context)}. You can add multiple {@link ParseNetworkInterceptor}.
+   * 
+   * @param interceptor
+   *          {@link ParseNetworkInterceptor} to be added.
+   */
+  public static void addParseNetworkInterceptor(ParseNetworkInterceptor interceptor) {
     if (isInitialized()) {
       throw new IllegalStateException("`Parse#addParseNetworkInterceptor(ParseNetworkInterceptor)`"
           + " must be invoked before `Parse#initialize(Context)`");
@@ -617,8 +630,15 @@ public class Parse {
     interceptors.add(interceptor);
   }
 
-  // TODO(mengyan) Make public after we release the interceptor feature
-  /* package */ static void removeParseNetworkInterceptor(ParseNetworkInterceptor interceptor) {
+  /**
+   * Remove a given {@link ParseNetworkInterceptor}. You must invoke
+   * {@code removeParseNetworkInterceptor(ParseNetworkInterceptor)}  before
+   * {@link #initialize(Context)}.
+   *
+   * @param interceptor
+   *          {@link ParseNetworkInterceptor} to be removed.
+   */
+  public static void removeParseNetworkInterceptor(ParseNetworkInterceptor interceptor) {
     if (isInitialized()) {
       throw new IllegalStateException("`Parse#addParseNetworkInterceptor(ParseNetworkInterceptor)`"
           + " must be invoked before `Parse#initialize(Context)`");

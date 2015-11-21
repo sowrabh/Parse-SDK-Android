@@ -12,7 +12,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -134,10 +136,39 @@ public class ParseFile {
    * successfully synced with the server.
    */
   /* package for tests */ byte[] data;
+  /* package for tests */ File file;
 
   /* package for tests */ final TaskQueue taskQueue = new TaskQueue();
   private Set<Task<?>.TaskCompletionSource> currentTasks = Collections.synchronizedSet(
       new HashSet<Task<?>.TaskCompletionSource>());
+
+  /**
+   * Creates a new file from a file pointer.
+   *
+   * @param file
+   *          The file.
+   */
+  public ParseFile(File file) {
+    this(file, null);
+  }
+
+  /**
+   * Creates a new file from a file pointer, and content type. Content type will be used instead of
+   * auto-detection by file extension.
+   *
+   * @param file
+   *          The file.
+   * @param contentType
+   *          The file's content type.
+   */
+  public ParseFile(File file, String contentType) {
+    this(new State.Builder().name(file.getName()).mimeType(contentType).build());
+    if (file.length() > MAX_FILE_SIZE) {
+      throw new IllegalArgumentException(String.format("ParseFile must be less than %d bytes",
+          MAX_FILE_SIZE));
+    }
+    this.file = file;
+  }
 
   /**
    * Creates a new file from a byte array, file name, and content type. Content type will be used
@@ -231,7 +262,7 @@ public class ParseFile {
    * Whether the file has available data.
    */
   public boolean isDataAvailable() {
-    return data != null || getFileController().isDataAvailable(state) || isPinnedDataAvailable();
+    return data != null || getFileController().isDataAvailable(state);
   }
 
   /**
@@ -243,122 +274,6 @@ public class ParseFile {
   public String getUrl() {
     return state.url();
   }
-
-  //region LDS
-
-  /* package */ static File getFilesDir() {
-    return Parse.getParseFilesDir("files");
-  }
-
-  private String getFilename() {
-    return state.name();
-  }
-
-  /**
-   * On disk cache of the {@code ParseFile}'s data
-   *
-   * @return File if cached, null if not.
-   */
-  /* package for tests */ File getCacheFile() {
-    return getFileController().getCacheFile(state);
-  }
-
-  /* package for tests */ File getFilesFile() {
-    String filename = getFilename();
-    return filename != null ? new File(getFilesDir(), filename) : null;
-  }
-
-  /* package */ boolean isPinned() {
-    File file = getFilesFile();
-    return file != null && file.exists();
-  }
-
-  private boolean isPinnedDataAvailable() {
-    return getFilesFile().exists();
-  }
-
-  /* package */ void pin() throws ParseException {
-    setPinned(true);
-  }
-
-  /* package */ void unpin() throws ParseException {
-    setPinned(false);
-  }
-
-  /* package */ Task<Void> pinInBackground() {
-    return setPinnedInBackground(true);
-  }
-
-  /* package */ Task<Void> unpinInBackground() {
-    return setPinnedInBackground(false);
-  }
-
-  /* package */ void pinInBackground(ParseCallback1<ParseException> callback) {
-    setPinnedInBackground(true, callback);
-  }
-
-  /* package */ void unpinInBackground(ParseCallback1<ParseException> callback) {
-    setPinnedInBackground(false, callback);
-  }
-
-  private void setPinned(boolean pinned) throws ParseException {
-    ParseTaskUtils.wait(setPinnedInBackground(pinned));
-  }
-
-  private void setPinnedInBackground(boolean pinned, ParseCallback1<ParseException> callback) {
-    ParseTaskUtils.callbackOnMainThreadAsync(setPinnedInBackground(pinned), callback);
-  }
-
-  private Task<Void> setPinnedInBackground(final boolean pinned) {
-    return taskQueue.enqueue(new Continuation<Void, Task<Void>>() {
-      @Override
-      public Task<Void> then(Task<Void> task) throws Exception {
-        return task;
-      }
-    }).continueWith(new Continuation<Void, Void>() {
-      @Override
-      public Void then(Task<Void> task) throws Exception {
-        if (state.url() == null) {
-          throw new IllegalStateException("Unable to pin file before saving");
-        }
-
-        if ((pinned && isPinned()) || (!pinned && !isPinned())) {
-          // Already pinned or unpinned
-          return null;
-        }
-
-        File src, dest;
-        if (pinned) {
-          src = getCacheFile();
-          dest = getFilesFile();
-        } else {
-          src = getFilesFile();
-          dest = getCacheFile();
-        }
-
-        if (dest.exists()) {
-          ParseFileUtils.deleteQuietly(dest);
-        }
-
-        if (pinned && data != null) {
-          ParseFileUtils.writeByteArrayToFile(dest, data);
-          if (src.exists()) {
-            ParseFileUtils.deleteQuietly(src);
-          }
-          return null;
-        }
-
-        if (src == null || !src.exists()) {
-          throw new IllegalStateException("Unable to pin file before retrieving");
-        }
-
-        ParseFileUtils.moveFile(src, dest);
-        return null;
-      }
-    }, Task.BACKGROUND_EXECUTOR);
-  }
-
-  //endregion
 
   /**
    * Saves the file to the Parse cloud synchronously.
@@ -389,15 +304,31 @@ public class ParseFile {
           return Task.cancelled();
         }
 
-        return getFileController().saveAsync(
-            state,
-            data,
-            sessionToken,
-            progressCallbackOnMainThread(uploadProgressCallback),
-            cancellationToken).onSuccessTask(new Continuation<State, Task<Void>>() {
+        Task<ParseFile.State> saveTask;
+        if (data != null) {
+          saveTask = getFileController().saveAsync(
+              state,
+              data,
+              sessionToken,
+              progressCallbackOnMainThread(uploadProgressCallback),
+              cancellationToken);
+        } else {
+          saveTask = getFileController().saveAsync(
+              state,
+              file,
+              sessionToken,
+              progressCallbackOnMainThread(uploadProgressCallback),
+              cancellationToken);
+        }
+
+        return saveTask.onSuccessTask(new Continuation<State, Task<Void>>() {
           @Override
           public Task<Void> then(Task<State> task) throws Exception {
             state = task.getResult();
+            // Since we have successfully uploaded the file, we do not need to hold the file pointer
+            // anymore.
+            data = null;
+            file = null;
             return task.makeVoid();
           }
         });
@@ -477,64 +408,20 @@ public class ParseFile {
   }
 
   /**
-   * Synchronously gets the data for this object. You probably want to use
-   * {@link #getDataInBackground} instead unless you're already in a background thread.
+   * Synchronously gets the data from cache if available or fetches its content from the network.
+   * You probably want to use {@link #getDataInBackground()} instead unless you're already in a
+   * background thread.
    */
   public byte[] getData() throws ParseException {
     return ParseTaskUtils.wait(getDataInBackground());
   }
 
-  private Task<byte[]> getDataAsync(final ProgressCallback progressCallback, Task<Void> toAwait,
-      final Task<Void> cancellationToken) {
-    // If data is already available, just return immediately.
-    if (data != null) {
-      // in-memory
-      return Task.forResult(data);
-    }
-    if (cancellationToken != null && cancellationToken.isCancelled()) {
-      return Task.cancelled();
-    }
-
-    // Wait for our turn in the queue, and return immediately if data is now available.
-    return toAwait.continueWithTask(new Continuation<Void, Task<byte[]>>() {
-      @Override
-      public Task<byte[]> then(Task<Void> task) throws Exception {
-        // If data is already available, just return immediately.
-        if (data != null) {
-          // in-memory
-          return Task.forResult(data);
-        }
-        if (cancellationToken != null && cancellationToken.isCancelled()) {
-          return Task.cancelled();
-        }
-
-        return getFileController().fetchAsync(
-            state,
-            null,
-            progressCallbackOnMainThread(progressCallback),
-            cancellationToken).onSuccess(new Continuation<File, byte[]>() {
-              @Override
-              public byte[] then(Task<File> task) throws Exception {
-                File file = task.getResult();
-                try {
-                  data = ParseFileUtils.readFileToByteArray(file);
-                  return data;
-                } catch (IOException e) {
-                  // do nothing
-                }
-                return null;
-              }
-            });
-      }
-    });
-  }
-
   /**
-   * Gets the data for this object in a background thread. `progressCallback` is guaranteed to be
-   * called with 100 before dataCallback is called.
+   * Asynchronously gets the data from cache if available or fetches its content from the network.
+   * A {@code ProgressCallback} will be called periodically with progress updates.
    *
    * @param progressCallback
-   *          A ProgressCallback that is called periodically with progress updates.
+   *          A {@code ProgressCallback} that is called periodically with progress updates.
    * @return A Task that is resolved when the data has been fetched.
    */
   public Task<byte[]> getDataInBackground(final ProgressCallback progressCallback) {
@@ -544,7 +431,18 @@ public class ParseFile {
     return taskQueue.enqueue(new Continuation<Void, Task<byte[]>>() {
       @Override
       public Task<byte[]> then(Task<Void> toAwait) throws Exception {
-        return getDataAsync(progressCallback, toAwait, cts.getTask());
+        return fetchInBackground(progressCallback, toAwait, cts.getTask()).onSuccess(new Continuation<File, byte[]>() {
+          @Override
+          public byte[] then(Task<File> task) throws Exception {
+            File file = task.getResult();
+            try {
+              return ParseFileUtils.readFileToByteArray(file);
+            } catch (IOException e) {
+              // do nothing
+            }
+            return null;
+          }
+        });
       }
     }).continueWithTask(new Continuation<byte[], Task<byte[]>>() {
       @Override
@@ -557,8 +455,7 @@ public class ParseFile {
   }
 
   /**
-   * Gets the data for this object in a background thread. `progressCallback` is guaranteed to be
-   * called with 100 before dataCallback is called.
+   * Asynchronously gets the data from cache if available or fetches its content from the network.
    *
    * @return A Task that is resolved when the data has been fetched.
    */
@@ -567,13 +464,14 @@ public class ParseFile {
   }
 
   /**
-   * Gets the data for this object in a background thread. `progressCallback` is guaranteed to be
-   * called with 100 before dataCallback is called.
+   * Asynchronously gets the data from cache if available or fetches its content from the network.
+   * A {@code ProgressCallback} will be called periodically with progress updates.
+   * A {@code GetDataCallback} will be called when the get completes.
    *
    * @param dataCallback
-   *          A GetDataCallback that is called when the get completes.
+   *          A {@code GetDataCallback} that is called when the get completes.
    * @param progressCallback
-   *          A ProgressCallback that is called periodically with progress updates.
+   *          A {@code ProgressCallback} that is called periodically with progress updates.
    */
   public void getDataInBackground(GetDataCallback dataCallback,
       final ProgressCallback progressCallback) {
@@ -581,13 +479,205 @@ public class ParseFile {
   }
 
   /**
-   * Gets the data for this object in a background thread.
+   * Asynchronously gets the data from cache if available or fetches its content from the network.
+   * A {@code GetDataCallback} will be called when the get completes.
    *
    * @param dataCallback
-   *          A GetDataCallback that is called when the get completes.
+   *          A {@code GetDataCallback} that is called when the get completes.
    */
   public void getDataInBackground(GetDataCallback dataCallback) {
     ParseTaskUtils.callbackOnMainThreadAsync(getDataInBackground(), dataCallback);
+  }
+
+  /**
+   * Synchronously gets the file pointer from cache if available or fetches its content from the
+   * network. You probably want to use {@link #getFileInBackground()} instead unless you're already
+   * in a background thread.
+   * <strong>Note: </strong> The {@link File} location may change without notice and should not be
+   * stored to be accessed later.
+   */
+  public File getFile() throws ParseException {
+    return ParseTaskUtils.wait(getFileInBackground());
+  }
+
+  /**
+   * Asynchronously gets the file pointer from cache if available or fetches its content from the
+   * network. The {@code ProgressCallback} will be called periodically with progress updates.
+   * <strong>Note: </strong> The {@link File} location may change without notice and should not be
+   * stored to be accessed later.
+   *
+   * @param progressCallback
+   *          A {@code ProgressCallback} that is called periodically with progress updates.
+   * @return A Task that is resolved when the file pointer of this object has been fetched.
+   */
+  public Task<File> getFileInBackground(final ProgressCallback progressCallback) {
+    final Task<Void>.TaskCompletionSource cts = Task.create();
+    currentTasks.add(cts);
+
+    return taskQueue.enqueue(new Continuation<Void, Task<File>>() {
+      @Override
+      public Task<File> then(Task<Void> toAwait) throws Exception {
+        return fetchInBackground(progressCallback, toAwait, cts.getTask());
+      }
+    }).continueWithTask(new Continuation<File, Task<File>>() {
+      @Override
+      public Task<File> then(Task<File> task) throws Exception {
+        cts.trySetResult(null); // release
+        currentTasks.remove(cts);
+        return task;
+      }
+    });
+  }
+
+  /**
+   * Asynchronously gets the file pointer from cache if available or fetches its content from the
+   * network.
+   * <strong>Note: </strong> The {@link File} location may change without notice and should not be
+   * stored to be accessed later.
+   *
+   * @return A Task that is resolved when the data has been fetched.
+   */
+  public Task<File> getFileInBackground() {
+    return getFileInBackground((ProgressCallback) null);
+  }
+
+  /**
+   * Asynchronously gets the file pointer from cache if available or fetches its content from the
+   * network. The {@code GetFileCallback} will be called when the get completes.
+   * The {@code ProgressCallback} will be called periodically with progress updates.
+   * The {@code ProgressCallback} is guaranteed to be called with 100 before the
+   * {@code GetFileCallback} is called.
+   * <strong>Note: </strong> The {@link File} location may change without notice and should not be
+   * stored to be accessed later.
+   *
+   * @param fileCallback
+   *          A {@code GetFileCallback} that is called when the get completes.
+   * @param progressCallback
+   *          A {@code ProgressCallback} that is called periodically with progress updates.
+   */
+  public void getFileInBackground(GetFileCallback fileCallback,
+      final ProgressCallback progressCallback) {
+    ParseTaskUtils.callbackOnMainThreadAsync(getFileInBackground(progressCallback), fileCallback);
+  }
+
+  /**
+   * Asynchronously gets the file pointer from cache if available or fetches its content from the
+   * network. The {@code GetFileCallback} will be called when the get completes.
+   * <strong>Note: </strong> The {@link File} location may change without notice and should not be
+   * stored to be accessed later.
+   *
+   * @param fileCallback
+   *          A {@code GetFileCallback} that is called when the get completes.
+   */
+  public void getFileInBackground(GetFileCallback fileCallback) {
+    ParseTaskUtils.callbackOnMainThreadAsync(getFileInBackground(), fileCallback);
+  }
+
+  /**
+   * Synchronously gets the data stream from cached file if available or fetches its content from
+   * the network, saves the content as cached file and returns the data stream of the cached file.
+   * You probably want to use {@link #getDataStreamInBackground} instead unless you're already in a
+   * background thread.
+   */
+  public InputStream getDataStream() throws ParseException {
+    return ParseTaskUtils.wait(getDataStreamInBackground());
+  }
+
+  /**
+   * Asynchronously gets the data stream from cached file if available or fetches its content from
+   * the network, saves the content as cached file and returns the data stream of the cached file.
+   * The {@code ProgressCallback} will be called periodically with progress updates.
+   *
+   * @param progressCallback
+   *          A {@code ProgressCallback} that is called periodically with progress updates.
+   * @return A Task that is resolved when the data stream of this object has been fetched.
+   */
+  public Task<InputStream> getDataStreamInBackground(final ProgressCallback progressCallback) {
+    final Task<Void>.TaskCompletionSource cts = Task.create();
+    currentTasks.add(cts);
+
+    return taskQueue.enqueue(new Continuation<Void, Task<InputStream>>() {
+      @Override
+      public Task<InputStream> then(Task<Void> toAwait) throws Exception {
+        return fetchInBackground(progressCallback, toAwait, cts.getTask()).onSuccess(new Continuation<File, InputStream>() {
+          @Override
+          public InputStream then(Task<File> task) throws Exception {
+            return new FileInputStream(task.getResult());
+          }
+        });
+      }
+    }).continueWithTask(new Continuation<InputStream, Task<InputStream>>() {
+      @Override
+      public Task<InputStream> then(Task<InputStream> task) throws Exception {
+        cts.trySetResult(null); // release
+        currentTasks.remove(cts);
+        return task;
+      }
+    });
+  }
+
+  /**
+   * Asynchronously gets the data stream from cached file if available or fetches its content from
+   * the network, saves the content as cached file and returns the data stream of the cached file.
+   *
+   * @return A Task that is resolved when the data stream has been fetched.
+   */
+  public Task<InputStream> getDataStreamInBackground() {
+    return getDataStreamInBackground((ProgressCallback) null);
+  }
+
+  /**
+   * Asynchronously gets the data stream from cached file if available or fetches its content from
+   * the network, saves the content as cached file and returns the data stream of the cached file.
+   * The {@code GetDataStreamCallback} will be called when the get completes. The
+   * {@code ProgressCallback} will be called periodically with progress updates. The
+   * {@code ProgressCallback} is guaranteed to be called with 100 before
+   * {@code GetDataStreamCallback} is called.
+   *
+   * @param dataStreamCallback
+   *          A {@code GetDataStreamCallback} that is called when the get completes.
+   * @param progressCallback
+   *          A {@code ProgressCallback} that is called periodically with progress updates.
+   */
+  public void getDataStreamInBackground(GetDataStreamCallback dataStreamCallback,
+      final ProgressCallback progressCallback) {
+    ParseTaskUtils.callbackOnMainThreadAsync(
+        getDataStreamInBackground(progressCallback), dataStreamCallback);
+  }
+
+  /**
+   * Asynchronously gets the data stream from cached file if available or fetches its content from
+   * the network, saves the content as cached file and returns the data stream of the cached file.
+   * The {@code GetDataStreamCallback} will be called when the get completes.
+   *
+   * @param dataStreamCallback
+   *          A {@code GetDataStreamCallback} that is called when the get completes.
+   */
+  public void getDataStreamInBackground(GetDataStreamCallback dataStreamCallback) {
+    ParseTaskUtils.callbackOnMainThreadAsync(getDataStreamInBackground(), dataStreamCallback);
+  }
+
+  private Task<File> fetchInBackground(
+      final ProgressCallback progressCallback,
+      Task<Void> toAwait,
+      final Task<Void> cancellationToken) {
+    if (cancellationToken != null && cancellationToken.isCancelled()) {
+      return Task.cancelled();
+    }
+
+    return toAwait.continueWithTask(new Continuation<Void, Task<File>>() {
+      @Override
+      public Task<File> then(Task<Void> task) throws Exception {
+        if (cancellationToken != null && cancellationToken.isCancelled()) {
+          return Task.cancelled();
+        }
+        return getFileController().fetchAsync(
+            state,
+            null,
+            progressCallbackOnMainThread(progressCallback),
+            cancellationToken);
+      }
+    });
   }
 
   /**
@@ -606,7 +696,6 @@ public class ParseFile {
   /*
    * Encode/Decode
    */
-
   @SuppressWarnings("unused")
   /* package */ ParseFile(JSONObject json, ParseDecoder decoder) {
     this(new State.Builder().name(json.optString("name")).url(json.optString("url")).build());

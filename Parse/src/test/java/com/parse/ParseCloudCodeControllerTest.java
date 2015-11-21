@@ -8,10 +8,12 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.Test;
-import org.skyscreamer.jsonassert.JSONCompareMode;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -31,7 +33,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.skyscreamer.jsonassert.JSONAssert.assertEquals;
 
 public class ParseCloudCodeControllerTest {
 
@@ -57,21 +58,6 @@ public class ParseCloudCodeControllerTest {
     Object result = controller.convertCloudResponse(null);
 
     assertNull(result);
-  }
-
-  @Test
-  public void testConvertCloudResponseJsonResponseWithoutResultField() throws Exception {
-    ParseHttpClient restClient = mock(ParseHttpClient.class);
-    ParseCloudCodeController controller = new ParseCloudCodeController(restClient);
-    JSONObject response = new JSONObject();
-    response.put("foo", "bar");
-    response.put("yarr", 1);
-
-    Object result = controller.convertCloudResponse(response);
-
-    assertThat(result, instanceOf(JSONObject.class));
-    JSONObject jsonResult = (JSONObject)result;
-    assertEquals(response, jsonResult, JSONCompareMode.NON_EXTENSIBLE);
   }
 
   @Test
@@ -116,15 +102,16 @@ public class ParseCloudCodeControllerTest {
   }
 
   @Test
-  public void testCallFunctionInBackgroundSuccess() throws Exception {
+  public void testCallFunctionInBackgroundSuccessWithResult() throws Exception {
     JSONObject json = new JSONObject();
     json.put("result", "test");
     String content = json.toString();
 
-    ParseHttpResponse mockResponse = mock(ParseHttpResponse.class);
-    when(mockResponse.getStatusCode()).thenReturn(200);
-    when(mockResponse.getContent()).thenReturn(new ByteArrayInputStream(content.getBytes()));
-    when(mockResponse.getTotalSize()).thenReturn(content.length());
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(200)
+        .setTotalSize((long) content.length())
+        .setContent(new ByteArrayInputStream(content.getBytes()))
+        .build();
 
     ParseHttpClient restClient = mockParseHttpClientWithReponse(mockResponse);
     ParseCloudCodeController controller = new ParseCloudCodeController(restClient);
@@ -135,6 +122,28 @@ public class ParseCloudCodeControllerTest {
 
     verify(restClient, times(1)).execute(any(ParseHttpRequest.class));
     assertEquals("test", cloudCodeTask.getResult());
+  }
+
+  @Test
+  public void testCallFunctionInBackgroundSuccessWithoutResult() throws Exception {
+    JSONObject json = new JSONObject();
+    String content = json.toString();
+
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(200)
+        .setTotalSize((long) content.length())
+        .setContent(new ByteArrayInputStream(content.getBytes()))
+        .build();
+
+    ParseHttpClient restClient = mockParseHttpClientWithReponse(mockResponse);
+    ParseCloudCodeController controller = new ParseCloudCodeController(restClient);
+
+    Task<String> cloudCodeTask = controller.callFunctionInBackground(
+        "test", new HashMap<String, Object>(), "sessionToken");
+    ParseTaskUtils.wait(cloudCodeTask);
+
+    verify(restClient, times(1)).execute(any(ParseHttpRequest.class));
+    assertNull(cloudCodeTask.getResult());
   }
 
   @Test

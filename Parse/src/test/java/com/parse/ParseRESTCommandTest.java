@@ -8,6 +8,9 @@
  */
 package com.parse;
 
+import com.parse.http.ParseHttpRequest;
+import com.parse.http.ParseHttpResponse;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.junit.After;
@@ -21,6 +24,8 @@ import org.robolectric.annotation.Config;
 import org.skyscreamer.jsonassert.JSONCompareMode;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 import bolts.Task;
 
@@ -29,7 +34,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,11 +54,12 @@ public class ParseRESTCommandTest {
   }
 
   private static ParseHttpResponse newMockParseHttpResponse(int statusCode, String body) {
-    ParseHttpResponse response = mock(ParseHttpResponse.class);
-    when(response.getStatusCode()).thenReturn(statusCode);
-    when(response.getContent()).thenReturn(new ByteArrayInputStream(body.getBytes()));
-    when(response.getTotalSize()).thenReturn(body.length());
-    return response;
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(statusCode)
+        .setTotalSize((long) body.length())
+        .setContent(new ByteArrayInputStream(body.getBytes()))
+        .build();
+    return mockResponse;
   }
 
   @Rule
@@ -78,7 +87,7 @@ public class ParseRESTCommandTest {
     when(client.execute(any(ParseHttpRequest.class))).thenReturn(response);
 
     ParseRESTCommand command = new ParseRESTCommand.Builder()
-        .method(ParseRequest.Method.GET)
+        .method(ParseHttpRequest.Method.GET)
         .installationId("fake_installation_id")
         .build();
     Task<JSONObject> task = command.executeAsync(client);
@@ -111,7 +120,7 @@ public class ParseRESTCommandTest {
     );
 
     ParseRESTCommand command = new ParseRESTCommand.Builder()
-        .method(ParseRequest.Method.GET)
+        .method(ParseHttpRequest.Method.GET)
         .installationId("fake_installation_id")
         .build();
     Task<JSONObject> task = command.executeAsync(client);
@@ -136,7 +145,7 @@ public class ParseRESTCommandTest {
     when(client.execute(any(ParseHttpRequest.class))).thenReturn(response);
 
     ParseRESTCommand command = new ParseRESTCommand.Builder()
-        .method(ParseRequest.Method.GET)
+        .method(ParseHttpRequest.Method.GET)
         .installationId("fake_installation_id")
         .build();
     Task<JSONObject> task = command.executeAsync(client);
@@ -184,7 +193,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -210,7 +219,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -218,7 +227,7 @@ public class ParseRESTCommandTest {
     String cacheKey = command.getCacheKey();
 
     assertTrue(cacheKey.contains("ParseRESTCommand"));
-    assertTrue(cacheKey.contains(ParseRequest.Method.POST.toString()));
+    assertTrue(cacheKey.contains(ParseHttpRequest.Method.POST.toString()));
     assertTrue(cacheKey.contains(ParseDigestUtils.md5(httpPath)));
     String str =
         ParseDigestUtils.md5(ParseRESTCommand.toDeterministicString(jsonParameters) + sessionToken);
@@ -233,7 +242,7 @@ public class ParseRESTCommandTest {
     String localId = "localId";
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -241,7 +250,7 @@ public class ParseRESTCommandTest {
     String cacheKey = command.getCacheKey();
 
     assertTrue(cacheKey.contains("ParseRESTCommand"));
-    assertTrue(cacheKey.contains(ParseRequest.Method.POST.toString()));
+    assertTrue(cacheKey.contains(ParseHttpRequest.Method.POST.toString()));
     assertTrue(cacheKey.contains(ParseDigestUtils.md5(httpPath)));
     assertTrue(cacheKey.contains(ParseDigestUtils.md5(sessionToken)));
   }
@@ -264,7 +273,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -293,7 +302,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -326,7 +335,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -341,7 +350,7 @@ public class ParseRESTCommandTest {
     // Make sure localId in command has been replaced with objectId
     assertNull(command.getLocalId());
     // Make sure httpMethod has been changed
-    assertEquals(ParseRequest.Method.PUT, command.method);
+    assertEquals(ParseHttpRequest.Method.PUT, command.method);
     // Make sure objectId has been added to httpPath
     assertTrue(command.httpPath.contains("objectId"));
   }
@@ -364,7 +373,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.POST)
+        .method(ParseHttpRequest.Method.POST)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -383,14 +392,14 @@ public class ParseRESTCommandTest {
     String localId = "localId";
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
-        .method(ParseRequest.Method.GET)
+        .method(ParseHttpRequest.Method.GET)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
 
     thrown.expect(IllegalArgumentException.class);
     String message = String.format("Trying to execute a %s command without body parameters.",
-        ParseRequest.Method.GET.toString());
+        ParseHttpRequest.Method.GET.toString());
     thrown.expectMessage(message);
     
     command.newBody(null);
@@ -408,7 +417,7 @@ public class ParseRESTCommandTest {
     ParseRESTCommand command = new ParseRESTCommand.Builder()
         .httpPath(httpPath)
         .jsonParameters(jsonParameters)
-        .method(ParseRequest.Method.GET)
+        .method(ParseHttpRequest.Method.GET)
         .sessionToken(sessionToken)
         .localId(localId)
         .build();
@@ -419,7 +428,7 @@ public class ParseRESTCommandTest {
     JSONObject json = new JSONObject(new String(ParseIOUtils.toByteArray(body.getContent())));
     assertEquals(1, json.getInt("count"));
     assertEquals(1, json.getInt("limit"));
-    assertEquals(ParseRequest.Method.GET.toString(), json.getString("_method"));
+    assertEquals(ParseHttpRequest.Method.GET.toString(), json.getString("_method"));
     // Verify body content-type is correct
     assertEquals("application/json", body.getContentType());
   }
@@ -448,5 +457,64 @@ public class ParseRESTCommandTest {
     assertEquals(sessionToken, command.getSessionToken());
     assertEquals(localId, command.getLocalId());
     assertEquals(jsonParameters, command.jsonParameters, JSONCompareMode.NON_EXTENSIBLE);
+  }
+
+  @Test
+  public void testOnResponseCloseNetworkStreamWithNormalResponse() throws Exception {
+    // Mock response stream
+    int statusCode = 200;
+    JSONObject bodyJson = new JSONObject();
+    bodyJson.put("key", "value");
+    String bodyStr = bodyJson.toString();
+    ByteArrayInputStream bodyStream = new ByteArrayInputStream(bodyStr.getBytes());
+    InputStream mockResponseStream = spy(bodyStream);
+    doNothing()
+        .when(mockResponseStream)
+        .close();
+    // Mock response
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(statusCode)
+        .setTotalSize((long) bodyStr.length())
+        .setContent(mockResponseStream)
+        .build();
+
+    ParseRESTCommand command = new ParseRESTCommand.Builder().build();
+    JSONObject json = ParseTaskUtils.wait(command.onResponseAsync(mockResponse, null));
+
+    verify(mockResponseStream, times(1)).close();
+    assertEquals(bodyJson, json, JSONCompareMode.NON_EXTENSIBLE);
+  }
+
+  @Test
+  public void testOnResposneCloseNetworkStreamWithIOException() throws Exception {
+    // Mock response stream
+    int statusCode = 200;
+    InputStream mockResponseStream = mock(InputStream.class);
+    doNothing()
+        .when(mockResponseStream)
+        .close();
+    IOException readException = new IOException("Error");
+    doThrow(readException)
+        .when(mockResponseStream)
+        .read();
+    doThrow(readException)
+        .when(mockResponseStream)
+        .read(any(byte[].class));
+    // Mock response
+    ParseHttpResponse mockResponse = new ParseHttpResponse.Builder()
+        .setStatusCode(statusCode)
+        .setContent(mockResponseStream)
+        .build();
+
+    ParseRESTCommand command = new ParseRESTCommand.Builder().build();
+    // We can not use ParseTaskUtils here since it will replace the original exception with runtime
+    // exception
+    Task<JSONObject> responseTask = command.onResponseAsync(mockResponse, null);
+    responseTask.waitForCompletion();
+
+    assertTrue(responseTask.isFaulted());
+    assertTrue(responseTask.getError() instanceof IOException);
+    assertEquals("Error", responseTask.getError().getMessage());
+    verify(mockResponseStream, times(1)).close();
   }
 }

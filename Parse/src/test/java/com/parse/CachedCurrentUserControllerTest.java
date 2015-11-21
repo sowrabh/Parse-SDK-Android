@@ -10,11 +10,8 @@ package com.parse;
 
 import org.junit.After;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -25,6 +22,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -52,6 +50,7 @@ public class CachedCurrentUserControllerTest {
   public void testSetAsyncWithOldInMemoryCurrentUser() throws Exception {
     // Mock currentUser in memory
     ParseUser oldCurrentUser = mock(ParseUser.class);
+    when(oldCurrentUser.logOutAsync(anyBoolean())).thenReturn(Task.<Void>forResult(null));
 
     ParseUser.State state = new ParseUser.State.Builder()
         .put("key", "value")
@@ -68,7 +67,7 @@ public class CachedCurrentUserControllerTest {
     ParseTaskUtils.wait(controller.setAsync(currentUser));
 
     // Make sure oldCurrentUser logout
-    verify(oldCurrentUser, times(1)).logOutInternal();
+    verify(oldCurrentUser, times(1)).logOutAsync(false);
     // Verify it was persisted
     verify(store, times(1)).setAsync(currentUser);
     // TODO(mengyan): Find a way to verify user.synchronizeAllAuthData() is called
@@ -108,6 +107,7 @@ public class CachedCurrentUserControllerTest {
   public void testSetAsyncWithPersistFailure() throws Exception {
     // Mock currentUser in memory
     ParseUser oldCurrentUser = mock(ParseUser.class);
+    when(oldCurrentUser.logOutAsync(anyBoolean())).thenReturn(Task.<Void>forResult(null));
 
     ParseUser currentUser = new ParseUser();
     ParseObjectStore<ParseUser> store =
@@ -122,7 +122,7 @@ public class CachedCurrentUserControllerTest {
     ParseTaskUtils.wait(controller.setAsync(currentUser));
 
     // Make sure oldCurrentUser logout
-    verify(oldCurrentUser, times(1)).logOutInternal();
+    verify(oldCurrentUser, times(1)).logOutAsync(false);
     // Verify we tried to persist
     verify(store, times(1)).setAsync(currentUser);
     // TODO(mengyan): Find a way to verify user.synchronizeAllAuthData() is called
@@ -159,6 +159,7 @@ public class CachedCurrentUserControllerTest {
 
     CachedCurrentUserController controller =
         new CachedCurrentUserController(store);
+    ParseCorePlugins.getInstance().registerCurrentUserController(controller);
     // CurrentUser is null but currentUserMatchesDisk is true happens when a user logout
     controller.currentUserMatchesDisk = true;
 
@@ -294,7 +295,7 @@ public class CachedCurrentUserControllerTest {
     when(currentUser.logOutAsync()).thenReturn(Task.<Void>forResult(null));
     controller.currentUser = currentUser;
 
-    ParseTaskUtils.wait(controller.logoutAsync());
+    ParseTaskUtils.wait(controller.logOutAsync());
 
     // Make sure currentUser.logout() is called
     verify(currentUser, times(1)).logOutAsync();
@@ -315,7 +316,7 @@ public class CachedCurrentUserControllerTest {
     CachedCurrentUserController controller =
         new CachedCurrentUserController(store);
 
-    ParseTaskUtils.wait(controller.logoutAsync());
+    ParseTaskUtils.wait(controller.logOutAsync());
 
     // Make sure controller state is correct
     assertNull(controller.currentUser);
@@ -331,7 +332,7 @@ public class CachedCurrentUserControllerTest {
     CachedCurrentUserController controller =
         new CachedCurrentUserController(null);
 
-    String authType = "test";
+    String authType = ParseAnonymousUtils.AUTH_TYPE;
     Map<String, String> authData = new HashMap<>();
     authData.put("sessionToken", "testSessionToken");
 
@@ -342,7 +343,7 @@ public class CachedCurrentUserControllerTest {
     assertTrue(user.isCurrentUser());
     Map<String, Map<String, String>> authPair = user.getMap(KEY_AUTH_DATA);
     assertEquals(1, authPair.size());
-    Map<String, String> authDataAgain = authPair.get("test");
+    Map<String, String> authDataAgain = authPair.get(authType);
     assertEquals(1, authDataAgain.size());
     assertEquals("testSessionToken", authDataAgain.get("sessionToken"));
     // Make sure controller state is correct
